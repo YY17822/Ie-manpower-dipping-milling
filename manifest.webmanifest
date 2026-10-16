@@ -1,0 +1,16 @@
+{
+  "name": "IE 人力需求程式（Dipping_Milling）",
+  "short_name": "IE人力 Dipping_Milling",
+  "description": "IE 部門每月計算未來六個月人力需求的小工具",
+  "lang": "zh-Hant",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F1F4F3",
+  "theme_color": "#084F4B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

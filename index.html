@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IE 人力需求程式（Dipping_Milling）</title>
+  <meta name="description" content="IE 部門每月計算未來六個月人力需求的小工具">
+  <meta name="theme-color" content="#084F4B">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+  <header class="topbar">
+    <span class="app-name">IE 人力需求程式（Dipping_Milling）</span>
+    <span class="app-sub">未來六個月人力需求，一步一步算</span>
+    <span class="app-version" id="app-version"></span>
+  </header>
+
+  <div class="layout">
+    <nav class="steps" aria-label="步驟">
+      <ol id="step-list"></ol>
+    </nav>
+    <main id="step-panel"></main>
+  </div>
+
+  <noscript>這個小程式需要開啟 JavaScript 才能使用。</noscript>
+
+  <!-- ExcelJS 由 app.js 載入：先找 vendor/exceljs.min.js，沒有才連網路 -->
+  <!-- 改了程式之後，把下面的 ?v= 數字和 excel-io.js 裡的 VERSION 一起加 1，瀏覽器才不會用到舊檔 -->
+  <script src="js/config.js?v=3"></script>
+  <script src="js/excel-io.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
+  <script src="js/ui.js?v=3"></script>
+  <script src="js/steps/step1-mps-filter.js?v=3"></script>
+  <script src="js/steps/step2-mps-totals.js?v=3"></script>
+  <script src="js/steps/step3-p003-import.js?v=3"></script>
+  <script src="js/steps/step4-ct-lookup.js?v=3"></script>
+  <script src="js/steps/step5-demand-hours.js?v=3"></script>
+  <script src="js/steps/step6-summary.js?v=3"></script>
+  <script src="js/steps/step7-rma.js?v=3"></script>
+  <script src="js/steps/step8-manpower.js?v=3"></script>
+  <script src="js/steps/step9-report.js?v=3"></script>
+  <script src="js/steps/step10-rma-manpower.js?v=3"></script>
+</body>
+</html>
