@@ -10,18 +10,19 @@
  *     Milling站
  *       機台需求工時   公式：參照 MPS 工作表 Milling 段「機台需求工時」第 5 步的 Total 列，例如 ='MPS'!P10
  *       人機比         輸入機台數、人員數（六個月共用），填 =機台數/人員數；Notes 寫「1 人顧 4 機」
- *       開機數         =ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)
+ *       開機數         =ROUNDUP(機台需求工時/((工作天數+加班天數 - Milling)*機台每日可動工時),1)
  *       顧機人數       =ROUNDUP(開機數/人機比,1)
- *     Dipping站     同上（參照 Dipping 段的 Total 列、自己的機台數和人員數、加班天數-Dipping）
+ *     Dipping站     同上（參照 Dipping 段的 Total 列、自己的機台數和人員數、加班天數 - Dipping）
  *   其他格的內容（公式）之後再一項一項補上。
  *
  *   版面（B 到 K 行、第 2 到 34 列，設定在 js/excel-io.js 的 DM_REPORT、DM_ROWS）：
  *     第 2 列      表頭：B:C 合併畫斜線；D 是 Unit；E 到 J 是六個月；K 是 Notes（深藍底白字）
  *     第 3–8 列    工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率
  *     第 9–10 列   MPS：Milling、Dipping（淺藍底）
- *     第 11–16 列  Milling站：機台需求工時、人機比、開機數、顧機人數；加班天數-銑切；需求顧機人數-銑切（淺綠底）
- *     第 17–22 列  Dipping站：同上；加班天數-Dipping；需求顧機人數-dipping（淺紫底）
- *     第 23–28 列  需求時數-目檢：Milling、Dipping（min/月）、Milling、Dipping（人/班）；加班天數-目檢；需求顧機人數-目檢（淺褐底）
+ *     第 11–16 列  Milling站：機台需求工時、人機比、開機數、顧機人數；加班天數 - Milling；需求顧機人數 - Milling（淺綠底）
+ *     第 17–22 列  Dipping站：同上；加班天數 - Dipping；需求顧機人數 - dipping（淺紫底）
+ *     第 23–28 列  目檢站：需求工時 - Milling、需求工時 - Dipping（min/月）、需求人力 - Milling、需求人力 - Dipping（人/班）；
+ *                  加班天數 - 目檢；需求顧機人數 - 目檢（淺褐底）
  *     第 29 列     總需求人力（淺橘底）
  *     第 30–31 列  現有人力：Milling、Dipping
  *     第 32 列     總現有人力（淺橘底，下面粗線）
@@ -318,7 +319,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '總表' }),
-      h('p', { text: '在同一個檔案裡新增「總表」工作表：MPS、Milling站、Dipping站、需求時數-目檢、總需求人力、現有人力、人力需求差異、Loading Rate。月份表頭會參照 MPS 工作表「機台需求工時」的月份。這一步先填工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率，以及 MPS 的 Milling、Dipping 兩列；其他格之後再補上。' })));
+      h('p', { text: '在同一個檔案裡新增「總表」工作表：MPS、Milling站、Dipping站、目檢站、總需求人力、現有人力、人力需求差異、Loading Rate。月份表頭會參照 MPS 工作表「機台需求工時」的月份。這一步先填工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列，以及 Milling站、Dipping站的機台需求工時、人機比、開機數、顧機人數；其他格之後再補上。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },

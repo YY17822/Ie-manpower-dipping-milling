@@ -3119,20 +3119,20 @@
     { r: 12, key: 'millingRatio', c: '人機比', u: '台/人', fill: 'milling' },
     { r: 13, key: 'millingMachines', c: '開機數', u: '台/人', fill: 'milling' },
     { r: 14, key: 'millingTenders', c: '顧機人數', u: '人/班', fill: 'milling' },
-    { r: 15, key: 'millingOtDays', b: '加班天數-銑切', u: '天', fill: 'milling' },
-    { r: 16, key: 'millingNeed', b: '需求顧機人數-銑切', u: '人/天', fill: 'milling' },
+    { r: 15, key: 'millingOtDays', b: '加班天數 - Milling', u: '天', fill: 'milling' },
+    { r: 16, key: 'millingNeed', b: '需求顧機人數 - Milling', u: '人/天', fill: 'milling' },
     { r: 17, key: 'dippingHours', c: '機台需求工時', u: 'min', fill: 'dipping' },
     { r: 18, key: 'dippingRatio', c: '人機比', u: '台/人', fill: 'dipping' },
     { r: 19, key: 'dippingMachines', c: '開機數', u: '台/人', fill: 'dipping' },
     { r: 20, key: 'dippingTenders', c: '顧機人數', u: '人/班', fill: 'dipping' },
-    { r: 21, key: 'dippingOtDays', b: '加班天數-Dipping', u: '天', fill: 'dipping' },
-    { r: 22, key: 'dippingNeed', b: '需求顧機人數-dipping', u: '人/天', fill: 'dipping' },
-    { r: 23, key: 'laborMinMilling', c: 'Milling', fill: 'labor' },
-    { r: 24, key: 'laborMinDipping', c: 'Dipping', fill: 'labor' },
-    { r: 25, key: 'laborPplMilling', c: 'Milling', fill: 'labor' },
-    { r: 26, key: 'laborPplDipping', c: 'Dipping', fill: 'labor' },
-    { r: 27, key: 'laborOtDays', b: '加班天數-目檢', u: '天', fill: 'labor' },
-    { r: 28, key: 'laborNeed', b: '需求顧機人數-目檢', u: '人/天', fill: 'labor' },
+    { r: 21, key: 'dippingOtDays', b: '加班天數 - Dipping', u: '天', fill: 'dipping' },
+    { r: 22, key: 'dippingNeed', b: '需求顧機人數 - dipping', u: '人/天', fill: 'dipping' },
+    { r: 23, key: 'laborMinMilling', c: '需求工時 - Milling', fill: 'labor' },
+    { r: 24, key: 'laborMinDipping', c: '需求工時 - Dipping', fill: 'labor' },
+    { r: 25, key: 'laborPplMilling', c: '需求人力 - Milling', fill: 'labor' },
+    { r: 26, key: 'laborPplDipping', c: '需求人力 - Dipping', fill: 'labor' },
+    { r: 27, key: 'laborOtDays', b: '加班天數 - 目檢', u: '天', fill: 'labor' },
+    { r: 28, key: 'laborNeed', b: '需求顧機人數 - 目檢', u: '人/天', fill: 'labor' },
     { r: 29, key: 'needTotal', b: '總需求人力', u: '人/天', fill: 'total' },
     { r: 30, key: 'haveMilling', c: 'Milling' },
     { r: 31, key: 'haveDipping', c: 'Dipping' },
@@ -3140,13 +3140,13 @@
     { r: 33, key: 'gap', b: '人力需求差異', u: '人/天' },
     { r: 34, key: 'loading', b: 'Loading Rate (9)=(X)/(1)', u: '%', fill: 'total' }
   ];
-  // B 行上下合併的群組標籤（align: 'center' 置中；'top' 靠左上）
+  // B 行上下合併的群組標籤（align: 'center' 置中；'left' 靠左、垂直置中；'top' 靠左上）
   var DM_GROUPS = [
     { top: 9, bottom: 10, text: 'MPS', align: 'center' },
     { top: 11, bottom: 14, text: 'Milling站', align: 'center' },
     { top: 17, bottom: 20, text: 'Dipping站', align: 'center' },
-    { top: 23, bottom: 26, text: '需求時數-目檢', align: 'center' },
-    { top: 30, bottom: 31, text: '現有人力', align: 'top' }
+    { top: 23, bottom: 26, text: '目檢站', align: 'center' },
+    { top: 30, bottom: 31, text: '現有人力', align: 'center' }
   ];
   // D 行（單位）上下合併
   var DM_UNIT_MERGES = [
@@ -3316,7 +3316,7 @@
     DM_GROUPS.forEach(function (g) {
       var cell = ws.getCell(g.top, R.labelCol);
       cell.value = g.text;
-      cell.style = Object.assign({}, cell.style, { alignment: g.align === 'top' ? TOP_LEFT : CENTER });
+      cell.style = Object.assign({}, cell.style, { alignment: g.align === 'top' ? TOP_LEFT : g.align === 'left' ? LEFT : CENTER });
       ws.mergeCellsWithoutStyle(g.top, R.labelCol, g.bottom, R.labelCol);
     });
     DM_UNIT_MERGES.forEach(function (u) {
@@ -3465,7 +3465,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 17,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 19,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
