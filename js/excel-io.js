@@ -3035,6 +3035,174 @@
 
   function sameSheetName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
 
+  /* ---------- 總表（Dipping_Milling 版） ---------- */
+
+  /*
+   * 版面：B 到 K 行、第 2 到 34 列。
+   *   B、C：項目（沒有子項目時 B:C 合併）；D：單位；E 到 J：六個月；K：Notes
+   *   第 2 列表頭：B:C 合併畫斜線，深藍底白字
+   * 各列的 key 給之後填公式用。fill 是整列（B 到 K）的底色。
+   * 目前只建立格式、文字、框線；各格的數值之後再一項一項補上。
+   */
+  var DM_REPORT = {
+    sheet: '總表',
+    labelCol: 2, subCol: 3, unitCol: 4, monthCol: 5, months: 6, noteCol: 11,
+    headRow: 2, firstRow: 3, lastRow: 34
+  };
+  var DM_FILL = {
+    head: 'FF3D5D8F',      // 表頭深藍
+    mps: 'FFDAEEF3',       // MPS 淺藍
+    milling: 'FFEBF1DE',   // Milling 站 淺綠
+    dipping: 'FFE4DFEC',   // Dipping 站 淺紫
+    labor: 'FFDDD9C4',     // 目檢 淺褐
+    total: 'FFFCD5B4'      // 總需求人力、總現有人力、Loading Rate 淺橘
+  };
+  // b：B 行（或 B:C 合併）的文字；c：C 行的子項目；u：單位
+  var DM_ROWS = [
+    { r: 3, key: 'workDays', b: '工作天數', u: 'day' },
+    { r: 4, key: 'workMinutes', b: '工作時間', u: 'min/班' },
+    { r: 5, key: 'machineMinutes', b: '機台每日可動工時[C]', u: 'min/天' },
+    { r: 6, key: 'shifts', b: '工作班別數', u: '班' },
+    { r: 7, key: 'attendance', b: '出勤率', u: '%' },
+    { r: 8, key: 'efficiency', b: '作業效率', u: '%' },
+    { r: 9, key: 'mpsMilling', c: 'Milling', fill: 'mps' },
+    { r: 10, key: 'mpsDipping', c: 'Dipping', fill: 'mps' },
+    { r: 11, key: 'millingHours', c: '機台需求工時', u: 'min', fill: 'milling' },
+    { r: 12, key: 'millingRatio', c: '人機比', u: '台/人', fill: 'milling' },
+    { r: 13, key: 'millingMachines', c: '開機數', u: '台/人', fill: 'milling' },
+    { r: 14, key: 'millingTenders', c: '顧機人數', u: '人/班', fill: 'milling' },
+    { r: 15, key: 'millingOtDays', b: '加班天數-銑切', u: '天', fill: 'milling' },
+    { r: 16, key: 'millingNeed', b: '需求顧機人數-銑切', u: '人/天', fill: 'milling' },
+    { r: 17, key: 'dippingHours', c: '機台需求工時', u: 'min', fill: 'dipping' },
+    { r: 18, key: 'dippingRatio', c: '人機比', u: '台/人', fill: 'dipping' },
+    { r: 19, key: 'dippingMachines', c: '開機數', u: '台/人', fill: 'dipping' },
+    { r: 20, key: 'dippingTenders', c: '顧機人數', u: '人/班', fill: 'dipping' },
+    { r: 21, key: 'dippingOtDays', b: '加班天數-Dipping', u: '天', fill: 'dipping' },
+    { r: 22, key: 'dippingNeed', b: '需求顧機人數-dipping', u: '人/天', fill: 'dipping' },
+    { r: 23, key: 'laborMinMilling', c: 'Milling', fill: 'labor' },
+    { r: 24, key: 'laborMinDipping', c: 'Dipping', fill: 'labor' },
+    { r: 25, key: 'laborPplMilling', c: 'Milling', fill: 'labor' },
+    { r: 26, key: 'laborPplDipping', c: 'Dipping', fill: 'labor' },
+    { r: 27, key: 'laborOtDays', b: '加班天數-目檢', u: '天', fill: 'labor' },
+    { r: 28, key: 'laborNeed', b: '需求顧機人數-目檢', u: '人/天', fill: 'labor' },
+    { r: 29, key: 'needTotal', b: '總需求人力', u: '人/天', fill: 'total' },
+    { r: 30, key: 'haveMilling', c: 'Milling' },
+    { r: 31, key: 'haveDipping', c: 'Dipping' },
+    { r: 32, key: 'haveTotal', b: '總現有人力', u: '人/天', fill: 'total', thickBottom: true },
+    { r: 33, key: 'gap', b: '人力需求差異', u: '人/天' },
+    { r: 34, key: 'loading', b: 'Loading Rate (9)=(X)/(1)', u: '%', fill: 'total' }
+  ];
+  // B 行上下合併的群組標籤（align: 'center' 置中；'top' 靠左上）
+  var DM_GROUPS = [
+    { top: 9, bottom: 10, text: 'MPS', align: 'center' },
+    { top: 11, bottom: 14, text: 'Milling站', align: 'center' },
+    { top: 17, bottom: 20, text: 'Dipping站', align: 'center' },
+    { top: 23, bottom: 26, text: '需求時數-目檢', align: 'center' },
+    { top: 30, bottom: 31, text: '現有人力', align: 'top' }
+  ];
+  // D 行（單位）上下合併
+  var DM_UNIT_MERGES = [
+    { top: 9, bottom: 10, text: 'PCS' },
+    { top: 23, bottom: 24, text: 'min/月' },
+    { top: 25, bottom: 26, text: '人/班' },
+    { top: 30, bottom: 31, text: '人/天' }
+  ];
+
+  /*
+   * 在活頁簿裡建立 Dipping_Milling 版的總表（已經有同名工作表就換掉）。
+   * o.monthRefs  [{ sheet, col, row, text }] 月份表頭要參照的儲存格（MPS 的機台需求工時月份）；沒有就留空白
+   * 回傳 { worksheet, rows: { key: 列號 }, monthCol, months }
+   */
+  function addDmReportSheet(wb, o) {
+    var R = DM_REPORT;
+    wb.worksheets.filter(function (w) { return sameSheetName(w.name, R.sheet); })
+      .forEach(function (w) { wb.removeWorksheet(w.id); });
+    var ws = wb.addWorksheet(R.sheet, { views: [{ state: 'normal', showGridLines: true }] });
+    var lastMonth = R.monthCol + R.months - 1;
+    var THIN = { style: 'thin', color: { argb: 'FF000000' } };
+    var THICK = { style: 'medium', color: { argb: 'FF000000' } };
+    function font(extra) { return Object.assign({ name: REPORT_FONT, size: 11 }, extra || {}); }
+    var LEFT = { horizontal: 'left', vertical: 'middle' };
+    var CENTER = { horizontal: 'center', vertical: 'middle' };
+    var TOP_LEFT = { horizontal: 'left', vertical: 'top' };
+    var thickBottomRows = {};
+    DM_ROWS.forEach(function (x) { if (x.thickBottom) thickBottomRows[x.r] = true; });
+
+    function border(r, c) {
+      return {
+        top: r === R.headRow ? THICK : THIN,
+        bottom: r === R.headRow || r === R.lastRow || thickBottomRows[r] ? THICK : THIN,
+        left: c === R.labelCol ? THICK : THIN,
+        right: c === R.noteCol ? THICK : THIN
+      };
+    }
+
+    // 行寬、列高
+    var widths = { 1: 3, 2: 24, 3: 20, 4: 10, 11: 40 };
+    for (var c = 1; c <= R.noteCol; c++) ws.getColumn(c).width = widths[c] || 13;
+    ws.getRow(1).height = 10;
+    ws.getRow(R.headRow).height = 24;
+    for (var r = R.firstRow; r <= R.lastRow; r++) ws.getRow(r).height = 21;
+
+    // 表頭
+    for (c = R.labelCol; c <= R.noteCol; c++) {
+      var b = border(R.headRow, c);
+      if (c <= R.subCol) b.diagonal = { up: false, down: true, style: 'medium', color: { argb: 'FF000000' } };
+      ws.getCell(R.headRow, c).style = {
+        font: font({ size: 12, bold: true, color: { argb: 'FFFFFFFF' } }),
+        fill: solid(DM_FILL.head), alignment: CENTER, border: b
+      };
+    }
+    ws.mergeCellsWithoutStyle(R.headRow, R.labelCol, R.headRow, R.subCol);
+    ws.getCell(R.headRow, R.unitCol).value = 'Unit';
+    ws.getCell(R.headRow, R.noteCol).value = 'Notes';
+    for (var m = 0; m < R.months; m++) {
+      var ref = o && o.monthRefs ? o.monthRefs[m] : null;
+      var hc = ws.getCell(R.headRow, R.monthCol + m);
+      hc.value = ref ? { formula: sheetRef(ref.sheet) + numToCol(ref.col) + ref.row, result: ref.text || '' } : null;
+    }
+
+    // 內容：每一格先給底色、框線、字型
+    var rows = {};
+    DM_ROWS.forEach(function (x) {
+      rows[x.key] = x.r;
+      var fill = x.fill ? solid(DM_FILL[x.fill]) : undefined;
+      for (var cc = R.labelCol; cc <= R.noteCol; cc++) {
+        var isLabel = cc <= R.subCol;
+        var st = {
+          font: font(isLabel ? { bold: true } : {}),
+          alignment: cc === R.unitCol ? CENTER : (isLabel || cc === R.noteCol ? LEFT : { horizontal: 'right', vertical: 'middle' }),
+          border: border(x.r, cc)
+        };
+        if (fill) st.fill = fill;
+        ws.getCell(x.r, cc).style = st;
+      }
+      if (x.b) {
+        ws.getCell(x.r, R.labelCol).value = x.b;
+        ws.mergeCellsWithoutStyle(x.r, R.labelCol, x.r, R.subCol);
+      }
+      if (x.c) ws.getCell(x.r, R.subCol).value = x.c;
+      if (x.u) ws.getCell(x.r, R.unitCol).value = x.u;
+    });
+    DM_GROUPS.forEach(function (g) {
+      var cell = ws.getCell(g.top, R.labelCol);
+      cell.value = g.text;
+      cell.style = Object.assign({}, cell.style, { alignment: g.align === 'top' ? TOP_LEFT : CENTER });
+      ws.mergeCellsWithoutStyle(g.top, R.labelCol, g.bottom, R.labelCol);
+    });
+    DM_UNIT_MERGES.forEach(function (u) {
+      ws.getCell(u.top, R.unitCol).value = u.text;
+      ws.mergeCellsWithoutStyle(u.top, R.unitCol, u.bottom, R.unitCol);
+    });
+
+    // 列印：橫向、一頁寬
+    Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
+
+    var wbAll = ws.workbook;
+    if (wbAll) wbAll.calcProperties = Object.assign({}, wbAll.calcProperties, { fullCalcOnLoad: true });
+    return { worksheet: ws, rows: rows, monthCol: R.monthCol, months: R.months, lastMonthCol: lastMonth };
+  }
+
   /*
    * 匯出前的修正：關掉 Excel 的「公式不一致」綠色小三角。
    * 每一列的公式參照不同的列（例如 ='P003'!C2/'P003'!B2、='P003'!C5/'P003'!B5），Excel 會以為公式打錯而標綠色三角。
@@ -3087,7 +3255,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 9,           // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 10,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -3154,6 +3322,9 @@
     REPORT_SECOND_OFFSET: REPORT_SECOND_OFFSET,
     findReportLinks: findReportLinks,
     toNumber: toNumber,
+    DM_REPORT: DM_REPORT,
+    DM_ROWS: DM_ROWS,
+    addDmReportSheet: addDmReportSheet,
     addIgnoredErrors: addIgnoredErrors,
     toBlob: toBlob
   };
