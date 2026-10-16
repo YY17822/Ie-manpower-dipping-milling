@@ -16,8 +16,7 @@
     { id: 'ct-lookup', title: '帶入標準工時 CT.', note: '機台 CT.、目檢 CT.、檢驗率' },
     { id: 'demand-hours', title: '計算需求工時', note: '機台、目檢需求工時' },
     { id: 'manpower', title: '匯入人力報表', note: '未來六個月的人力預計' },
-    { id: 'report', title: '總表', note: '各月人力需求總覽' },
-    { id: 'rma-manpower', title: 'RMA人力需求', note: '重工的人力需求' }
+    { id: 'report', title: '總表', note: '各月人力需求總覽' }
   ];
 
   /* ---------- 這個專案的身分（js/config.js） ---------- */

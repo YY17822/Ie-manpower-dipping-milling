@@ -355,3 +355,17 @@ button.step:hover { background: rgba(11, 110, 105, 0.07); }
 .chip.is-static:hover { border-color: var(--ink-2); }
 .chip.is-static.is-on { background: var(--teal); border-color: var(--teal); color: #fff; }
 .chip-tag { font-size: 0.75rem; font-weight: 700; padding: 0 0.375rem; border-radius: 3px; background: rgba(255, 255, 255, 0.22); }
+
+/* ---------- 第 7 步：各月輸入的表格 ---------- */
+.grid-scroll { margin-top: 0.25rem; }
+.grid-inputs { border-collapse: collapse; }
+.grid-inputs th, .grid-inputs td { padding: 0.3rem 0.375rem; text-align: left; vertical-align: middle; white-space: nowrap; }
+.grid-inputs thead th { font-size: 0.875rem; color: var(--ink-2); font-weight: 700; }
+.grid-inputs thead th.is-month { text-align: center; }
+.grid-inputs tbody th { font-weight: 700; padding-right: 0.75rem; }
+.grid-inputs tbody tr + tr th, .grid-inputs tbody tr + tr td { border-top: 1px solid var(--line-soft); }
+.grid-label { display: block; }
+.grid-unit { display: block; font-size: 0.8125rem; font-weight: 400; color: var(--ink-2); }
+.grid-note { font-size: 0.8125rem; color: var(--ink-2); }
+.in-grid { width: 5.5rem; text-align: center; }
+.hint-inline { font-size: 0.9375rem; color: var(--ink-2); }

@@ -1,10 +1,22 @@
 /*
  * 第 7 步：總表（Dipping_Milling）
- *   在活頁簿裡新增「總表」工作表。目前先建立表格的格式、文字、框線；各格的內容（公式）之後再一項一項補上。
+ *   在活頁簿裡新增「總表」工作表，建立表格的格式、文字、框線，並填入使用者在畫面上輸入的數值：
+ *     工作天數           各月輸入（不會記住）
+ *     工作時間           輸入工作時數、休息時數（小時，六個月共用），填 =(工作時數-休息時數)*60（分鐘）
+ *     機台每日可動工時   各月輸入小時，填 =小時*60（分鐘）
+ *     機台每日可動工時、工作班別數、出勤率、作業效率   各月輸入，有「套用到全部月份」按鈕（第一個月的值填到後面每個月）
+ *     MPS Milling、Dipping   公式：參照 MPS 工作表該段（Milling = Cutting）第 2 步的 Total 列，例如 ='MPS'!E10；
+ *                            沒有 Total 列就直接加總該段（當月加 WIP）
+ *     Milling站
+ *       機台需求工時   公式：參照 MPS 工作表 Milling 段「機台需求工時」第 5 步的 Total 列，例如 ='MPS'!P10
+ *       人機比         輸入機台數、人員數（六個月共用），填 =機台數/人員數；Notes 寫「1 人顧 4 機」
+ *       開機數         =ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)
+ *       顧機人數       =ROUNDUP(開機數/人機比,1)
+ *   其他格的內容（公式）之後再一項一項補上。
  *
  *   版面（B 到 K 行、第 2 到 34 列，設定在 js/excel-io.js 的 DM_REPORT、DM_ROWS）：
  *     第 2 列      表頭：B:C 合併畫斜線；D 是 Unit；E 到 J 是六個月；K 是 Notes（深藍底白字）
- *     第 3–8 列    工作天數、工作時間、機台每日可動工時[C]、工作班別數、出勤率、作業效率
+ *     第 3–8 列    工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率
  *     第 9–10 列   MPS：Milling、Dipping（淺藍底）
  *     第 11–16 列  Milling站：機台需求工時、人機比、開機數、顧機人數；加班天數-銑切；需求顧機人數-銑切（淺綠底）
  *     第 17–22 列  Dipping站：同上；加班天數-Dipping；需求顧機人數-dipping（淺紫底）
@@ -21,7 +33,7 @@
  *     a. 剛才第 6 步做好的結果（不用先匯出，直接沿用）
  *     b. 上傳之前第 6 步匯出的檔案
  *
- * 做完之後把結果放在 IEApp.state.withReport，下一步直接拿來用。
+ * 做完之後把結果放在 IEApp.state.withReport（這是最後一步，之後要接新的步驟時可以直接拿來用）。
  */
 (function (global) {
   'use strict';
@@ -44,6 +56,138 @@
     work: null            // { src, loading, error, wb, main, refs }
   };
   var els = {};
+
+  /* ---------- 使用者輸入的數值 ---------- */
+  // 每個月一格的列。percent：輸入的是 %（95 代表 95%）；copy：後面有「套用到全部月份」按鈕；remember：記在瀏覽器裡
+  var GRID = [
+    { key: 'workDays', label: '工作天數', unit: '天', remember: false },
+    { key: 'machineHours', label: '機台每日可動工時', unit: '小時', remember: true, copy: true },
+    { key: 'shifts', label: '工作班別數', unit: '班', remember: true, copy: true },
+    { key: 'attendance', label: '出勤率', unit: '%', remember: true, copy: true, percent: true },
+    { key: 'efficiency', label: '作業效率', unit: '%', remember: true, copy: true, percent: true }
+  ];
+  var INPUT_KEY = IEApp.storeKey('report-dm');
+  var INP = loadInputs();       // { workDays: ['', …], machineHours: [...], …, workHours: '', restHours: '' }（輸入框的文字）
+
+  function blankMonths() { var a = []; for (var i = 0; i < R.months; i++) a.push(''); return a; }
+  function loadInputs() {
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem(INPUT_KEY) || '{}') || {}; } catch (e) { s = {}; }
+    var out = { workHours: s.workHours || '', restHours: s.restHours || '', millMachines: s.millMachines || '', millPeople: s.millPeople || '' };
+    GRID.forEach(function (g) {
+      var saved = g.remember && Array.isArray(s[g.key]) ? s[g.key] : [];
+      out[g.key] = blankMonths().map(function (v, i) { return saved[i] === undefined ? '' : String(saved[i]); });
+    });
+    return out;
+  }
+  function saveInputs() {
+    var s = { workHours: INP.workHours, restHours: INP.restHours, millMachines: INP.millMachines, millPeople: INP.millPeople };
+    GRID.forEach(function (g) { if (g.remember) s[g.key] = INP[g.key]; });
+    try { localStorage.setItem(INPUT_KEY, JSON.stringify(s)); } catch (e) { /* 存不了就算了 */ }
+  }
+
+  // 輸入框的文字 → 數字。空白回傳 null；看不懂回傳 NaN。percent 時 95 或 95% 都回傳 0.95
+  function toValue(text, percent) {
+    var t = XIO.normalizeText(text || '').replace(/,/g, '');
+    if (percent) t = t.replace(/[%％]\s*$/, '');
+    t = t.trim();
+    if (t === '') return null;
+    var n = Number(t);
+    if (isNaN(n) || n < 0) return NaN;
+    return percent ? n / 100 : n;
+  }
+
+  // 讀出所有輸入：{ values: 給 addDmReportSheet 的 inputs, bad: [看不懂的], blank: [沒填的] }
+  function readInputs() {
+    var values = {}, bad = [], blank = [];
+    var names = monthNames();
+    GRID.forEach(function (g) {
+      values[g.key] = INP[g.key].map(function (text, i) {
+        var v = toValue(text, g.percent);
+        if (v === null) blank.push(g.label + '（' + names[i] + '）');
+        else if (isNaN(v)) bad.push(g.label + '（' + names[i] + '）「' + text + '」');
+        return v === null || isNaN(v) ? null : v;
+      });
+    });
+    [['workHours', '工作時數'], ['restHours', '休息時數']].forEach(function (p) {
+      var v = toValue(INP[p[0]], false);
+      if (v === null) blank.push(p[1]);
+      else if (isNaN(v)) bad.push(p[1] + '「' + INP[p[0]] + '」');
+      values[p[0]] = v === null || isNaN(v) ? null : v;
+    });
+    [['millMachines', 'Milling站的機台數'], ['millPeople', 'Milling站的人員數']].forEach(function (p) {
+      var v = toValue(INP[p[0]], false);
+      if (v === null) blank.push(p[1]);
+      else if (isNaN(v)) bad.push(p[1] + '「' + INP[p[0]] + '」');
+      values[p[0]] = v === null || isNaN(v) ? null : v;
+    });
+    if (values.millPeople === 0) bad.push('Milling站的人員數不能是 0');
+    if (values.workHours !== null && values.restHours !== null && values.restHours > values.workHours) {
+      bad.push('休息時數比工作時數還多');
+    }
+    return { values: values, bad: bad, blank: blank };
+  }
+
+  function monthNames() {
+    var refs = S.work && S.work.refs;
+    var out = [];
+    for (var i = 0; i < R.months; i++) out.push(refs && refs[i] && refs[i].text ? refs[i].text : '第 ' + (i + 1) + ' 個月');
+    return out;
+  }
+
+  // 輸入的表格：一列一個項目、一行一個月份；建立一次，之後只更新月份名稱
+  function buildInputGrid() {
+    els.monthHeads = [];
+    els.gridInputs = {};
+    var head = h('tr', null, h('th', { scope: 'col', text: '項目' }));
+    for (var i = 0; i < R.months; i++) {
+      var th = h('th', { scope: 'col', class: 'is-month', text: '第 ' + (i + 1) + ' 個月' });
+      els.monthHeads.push(th);
+      head.appendChild(th);
+    }
+    head.appendChild(h('th', { scope: 'col' }));
+    var body = h('tbody');
+    GRID.forEach(function (g) {
+      els.gridInputs[g.key] = [];
+      var tr = h('tr', null, h('th', { scope: 'row' },
+        h('span', { class: 'grid-label', text: g.label }), h('span', { class: 'grid-unit', text: g.unit })));
+      for (var m = 0; m < R.months; m++) {
+        var input = h('input', {
+          type: 'text', class: 'in in-grid', inputmode: 'decimal', autocomplete: 'off',
+          value: INP[g.key][m], 'aria-label': g.label + ' 第 ' + (m + 1) + ' 個月'
+        });
+        (function (key, idx, el) {
+          el.addEventListener('input', function () { INP[key][idx] = el.value; onType(); });
+        })(g.key, m, input);
+        els.gridInputs[g.key].push(input);
+        tr.appendChild(h('td', null, input));
+      }
+      tr.appendChild(h('td', null, g.copy ? h('button', {
+        type: 'button', class: 'btn-secondary btn-small', text: '套用到全部月份',
+        title: '把第一個月的值填到後面每個月',
+        onclick: function () { copyFirst(g.key); }
+      }) : (g.note ? h('span', { class: 'grid-note', text: g.note }) : null)));
+      body.appendChild(tr);
+    });
+    return h('div', { class: 'sheet-scroll grid-scroll' }, h('table', { class: 'grid-inputs' }, h('thead', null, head), body));
+  }
+
+  function copyFirst(key) {
+    var first = INP[key][0];
+    for (var m = 1; m < R.months; m++) {
+      INP[key][m] = first;
+      els.gridInputs[key][m].value = first;
+    }
+    onType();
+  }
+
+  var typeTimer = null;
+  function onType() {
+    saveInputs();
+    els.exportNote.textContent = '';
+    clearTimeout(typeTimer);
+    typeTimer = setTimeout(refresh, 250);
+  }
 
   function sameName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
   function isExtra(name) { return EXTRA.some(function (n) { return sameName(n, name); }); }
@@ -74,6 +218,26 @@
       n = parseInt(XIO.normalizeText(s1.startRow === undefined ? '' : s1.startRow), 10);
     } catch (e) { n = 0; }
     return n >= 1 ? n : 5;
+  }
+
+  // WIP、各月產量在哪幾行：和第 2、5 步共用的設定（沒有設定就用預設的第 4 行、第 5 到 10 行）
+  function mpsColumns() {
+    var shared = ui.columns.get();
+    var wip = XIO.parseColumns(shared.wipCol || '').cols;
+    var months = XIO.parseColumns(shared.monthCols || '').cols;
+    if (!months.length) months = [5, 6, 7, 8, 9, 10];
+    return { wipCol: wip.length === 1 ? wip[0] : 4, monthCols: months };
+  }
+
+  // 總表 MPS 那兩列的公式（Milling = Cutting 那一段、Dipping）
+  function mpsFormulas(main, src) {
+    var cols = mpsColumns();
+    return XIO.dmMpsFormulas(main, { headerEnd: dataStartRow(src) - 1, wipCol: cols.wipCol, monthCols: cols.monthCols });
+  }
+
+  // Milling站、Dipping站 機台需求工時的公式（參照 MPS 工作表機台需求工時那一塊各段的 Total 列）
+  function machineTotals(main, src) {
+    return XIO.dmBlockTotalFormulas(main, { headerEnd: dataStartRow(src) - 1, title: MONTH_TITLE, months: R.months });
   }
 
   // 月份表頭要參照的儲存格：MPS 工作表「機台需求工時」那一塊的月份（大表頭下一列）
@@ -119,15 +283,23 @@
     els.notes = h('ul', { class: 'notes' });
     els.layout = h('div', { class: 'sheet-area' });
     els.exportBtn = h('button', { type: 'button', class: 'btn-primary', disabled: true, text: '匯出 Excel', onclick: onExport });
-    els.nextBtn = h('button', {
-      type: 'button', class: 'btn-secondary', disabled: true, text: '下一步：RMA人力需求',
-      onclick: function () { IEApp.go('rma-manpower'); }
-    });
     els.exportNote = h('span', { class: 'export-note', 'aria-live': 'polite' });
+
+    // 工作時間：工作時數、休息時數（六個月共用）
+    els.workHours = h('input', { id: 'f9-work-h', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.workHours, placeholder: '例如 12' });
+    els.restHours = h('input', { id: 'f9-rest-h', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.restHours, placeholder: '例如 1' });
+    els.workMinutes = h('span', { class: 'hint-inline' });
+    els.workHours.addEventListener('input', function () { INP.workHours = els.workHours.value; onType(); });
+    els.millMachines = h('input', { id: 'f9-mill-m', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.millMachines, placeholder: '例如 4' });
+    els.millPeople = h('input', { id: 'f9-mill-p', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.millPeople, placeholder: '例如 1' });
+    els.millRatio = h('span', { class: 'hint-inline' });
+    els.millMachines.addEventListener('input', function () { INP.millMachines = els.millMachines.value; onType(); });
+    els.millPeople.addEventListener('input', function () { INP.millPeople = els.millPeople.value; onType(); });
+    els.restHours.addEventListener('input', function () { INP.restHours = els.restHours.value; onType(); });
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '總表' }),
-      h('p', { text: '在同一個檔案裡新增「總表」工作表，建立表格的格式、文字和框線：MPS、Milling站、Dipping站、需求時數-目檢、總需求人力、現有人力、人力需求差異、Loading Rate。月份表頭會參照 MPS 工作表「機台需求工時」的月份。各格的內容之後再補上。' })));
+      h('p', { text: '在同一個檔案裡新增「總表」工作表：MPS、Milling站、Dipping站、需求時數-目檢、總需求人力、現有人力、人力需求差異、Loading Rate。月份表頭會參照 MPS 工作表「機台需求工時」的月份。這一步先填工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率，以及 MPS 的 Milling、Dipping 兩列；其他格之後再補上。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -136,9 +308,27 @@
         h('div', { class: 'link-row' }, els.switchBtn, els.backBtn),
         els.srcMsg),
       h('li', { class: 'task' },
+        h('h2', { text: '工作時間' }),
+        h('div', { class: 'field-row' },
+          h('label', { for: 'f9-work-h', text: '工作時數' }), els.workHours, h('span', { text: '小時' }),
+          h('label', { for: 'f9-rest-h', text: '休息時數' }), els.restHours, h('span', { text: '小時' }),
+          els.workMinutes),
+        h('p', { class: 'hint', text: '六個月共用。總表的工作時間會填公式 =(工作時數-休息時數)*60，單位是分鐘。會記住上次輸入的值。' })),
+      h('li', { class: 'task' },
+        h('h2', { text: '各月的數值' }),
+        buildInputGrid(),
+        h('p', { class: 'hint', text: '出勤率、作業效率輸入 95 或 95% 都代表 95%。機台每日可動工時、工作班別數、出勤率、作業效率只要填第一個月，再按「套用到全部月份」。機台每日可動工時輸入小時，總表會換算成分鐘（例如 =22*60）。工作天數每個月不同，不會記住；其他會記住上次輸入的值。沒填的格子在總表留空白。' })),
+      h('li', { class: 'task' },
+        h('h2', { text: 'Milling站 人機比' }),
+        h('div', { class: 'field-row' },
+          h('label', { for: 'f9-mill-m', text: '機台數' }), els.millMachines, h('span', { text: '台' }),
+          h('label', { for: 'f9-mill-p', text: '人員數' }), els.millPeople, h('span', { text: '人' }),
+          els.millRatio),
+        h('p', { class: 'hint', text: '六個月共用。總表的人機比填公式 =機台數/人員數，Notes 寫「幾人顧幾機」。開機數 =ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)，顧機人數 =ROUNDUP(開機數/人機比,1)，都會自動填公式。會記住上次輸入的值。' })),
+      h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
         els.summary, els.notes, els.layout,
-        h('div', { class: 'actions' }, els.exportBtn, els.nextBtn, els.exportNote))));
+        h('div', { class: 'actions' }, els.exportBtn, els.exportNote))));
 
     refresh();
   }
@@ -182,6 +372,8 @@
       work.wb = wb;
       work.main = main;
       work.refs = monthRefs(main, src);
+      work.mps = mpsFormulas(main, src);
+      work.machineTotals = machineTotals(main, src);
       work.loading = false;
       refresh();
     }).catch(function (err) {
@@ -198,9 +390,9 @@
     var prev = IEApp.state.withManpower;
     IEApp.state.withReport = null;
     els.exportBtn.disabled = true;
-    els.nextBtn.disabled = true;
     els.notes.textContent = '';
     els.layout.textContent = '';
+    refreshInputLabels();
 
     if (!src) {
       els.srcInfo.textContent = '還沒有第 6 步的結果。回到第 6 步，或上傳之前匯出的檔案。';
@@ -232,9 +424,38 @@
       els.notes.appendChild(h('li', { class: 'is-warn' },
         work.main.name + ' 工作表找不到「' + MONTH_TITLE + '」（第 5 步），月份表頭先留空白。'));
     }
-    els.notes.appendChild(h('li', null, '目前只建立格式、文字和框線，各格的數值之後再補上。'));
-    renderLayout(refs);
+    var mps = work.mps;
+    var mpsText = [['cutting', 'Milling'], ['dipping', 'Dipping']].map(function (p) {
+      var list = mps && mps[p[0]];
+      if (!list) return p[1] + '：找不到';
+      return p[1] + '：' + (list[0].fromTotal ? '參照第 2 步的 Total 列' : '直接加總該段') + '，例如 =' + list[0].formula;
+    });
+    els.notes.appendChild(h('li', { class: mps && mps.cutting && mps.dipping ? null : 'is-warn' },
+      'MPS 的兩列（公式）：' + mpsText.join('；') + '。' +
+      (mps && mps.cutting && mps.dipping ? '' : '找不到的那一列先留空白（MPS 工作表裡要有第 1 步的「Cutting（…）」「Dipping（…）」標題和料號）。')));
 
+    var mt = work.machineTotals;
+    if (mt && mt.cutting) {
+      els.notes.appendChild(h('li', null, 'Milling站 機台需求工時（公式）：' +
+        (mt.cutting[0].fromTotal ? '參照第 5 步的 Total 列' : '直接加總該段') + '，例如 =' + mt.cutting[0].formula + '。'));
+    } else {
+      els.notes.appendChild(h('li', { class: 'is-warn' },
+        'MPS 工作表找不到 Milling（Cutting）段的「' + MONTH_TITLE + '」（第 5 步），Milling站的機台需求工時先留空白。'));
+    }
+
+    var read = readInputs();
+    if (read.bad.length) {
+      setSummary('看不懂：' + read.bad.join('、') + '。請輸入數字。', true);
+      return;
+    }
+    if (read.blank.length) {
+      els.notes.appendChild(h('li', { class: 'is-warn' },
+        '還沒填：' + read.blank.slice(0, 12).join('、') + (read.blank.length > 12 ? ' …等 ' + read.blank.length + ' 格' : '') +
+        '。沒填的格子在總表留空白，一樣可以匯出。'));
+    }
+    els.notes.appendChild(h('li', null, '目前填入第 3–14 列：工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站的四列；其他格之後再補上。'));
+
+    var inputs = read.values;
     els.exportBtn.disabled = false;
     IEApp.state.withReport = {
       outName: outputName(src),
@@ -244,9 +465,21 @@
       reportRows: rowKeys(),
       monthCol: R.monthCol,
       monthCount: R.months,
-      build: function () { return buildWorkbook(src, refs); }
+      inputs: inputs,
+      build: function () { return buildWorkbook(src, refs, inputs); }
     };
-    els.nextBtn.disabled = false;
+  }
+
+  // 月份名稱（從 MPS 抓到的）、工作時間換算後的分鐘，顯示在輸入區
+  function refreshInputLabels() {
+    var names = monthNames();
+    (els.monthHeads || []).forEach(function (th, i) { th.textContent = names[i]; });
+    var w = toValue(INP.workHours, false), r = toValue(INP.restHours, false);
+    els.workMinutes.textContent = w !== null && r !== null && !isNaN(w) && !isNaN(r)
+      ? '＝ 每班 ' + Math.round((w - r) * 60 * 100) / 100 + ' 分鐘' : '';
+    var mm = toValue(INP.millMachines, false), pp = toValue(INP.millPeople, false);
+    els.millRatio.textContent = mm !== null && pp !== null && !isNaN(mm) && !isNaN(pp) && pp > 0
+      ? '＝ 人機比 ' + Math.round(mm / pp * 100) / 100 + '（' + pp + ' 人顧 ' + mm + ' 機）' : '';
   }
 
   function rowKeys() {
@@ -255,42 +488,21 @@
     return out;
   }
 
-  // 畫面上的版面預覽：各列的項目和單位
-  function renderLayout(refs) {
-    var head = h('tr', null,
-      h('th', { class: 'colhead', scope: 'col', text: '列' }),
-      h('th', { class: 'colhead', scope: 'col', text: '項目' }),
-      h('th', { class: 'colhead', scope: 'col', text: 'Unit' }));
-    var months = [];
-    for (var i = 0; i < R.months; i++) months.push(refs && refs[i] ? refs[i].text : XIO.numToCol(R.monthCol + i));
-    head.appendChild(h('th', { class: 'colhead', scope: 'col', text: months.join(' / ') }));
-    var groups = { 9: 'MPS', 10: 'MPS', 11: 'Milling站', 12: 'Milling站', 13: 'Milling站', 14: 'Milling站',
-      17: 'Dipping站', 18: 'Dipping站', 19: 'Dipping站', 20: 'Dipping站',
-      23: '需求時數-目檢', 24: '需求時數-目檢', 25: '需求時數-目檢', 26: '需求時數-目檢', 30: '現有人力', 31: '現有人力' };
-    var units = { 9: 'PCS', 10: 'PCS', 23: 'min/月', 24: 'min/月', 25: '人/班', 26: '人/班', 30: '人/天', 31: '人/天' };
-    var body = h('tbody');
-    XIO.DM_ROWS.forEach(function (x) {
-      var label = x.b || ((groups[x.r] ? groups[x.r] + '｜' : '') + x.c);
-      body.appendChild(h('tr', null,
-        h('th', { class: 'rowhead', scope: 'row', text: String(x.r) }),
-        h('td', { text: label }),
-        h('td', { text: x.u || units[x.r] || '' }),
-        h('td', { text: '' })));
-    });
-    els.layout.appendChild(h('p', { class: 'sheet-caption', text: '總表的版面。' }));
-    els.layout.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': '總表的版面' },
-      h('table', { class: 'sheet is-result' }, h('thead', null, head), body)));
-  }
-
   function setSummary(text, isError, isWarn) {
     els.summary.textContent = text;
     els.summary.className = 'summary' + (isError ? ' is-error' : '') + (isWarn ? ' is-warn' : '');
   }
 
   /* ---------- 產生活頁簿 ---------- */
-  function buildWorkbook(src, refs) {
+  function buildWorkbook(src, refs, inputs) {
     return buildFrom(src).then(function (wb) {
-      XIO.addDmReportSheet(wb, { monthRefs: refs });
+      var main = pickMain(wb, src);
+      var mt = main ? machineTotals(main, src) : null;
+      XIO.addDmReportSheet(wb, {
+        monthRefs: refs, inputs: inputs, mps: main ? mpsFormulas(main, src) : null,
+        millingHours: mt ? mt.cutting : null,
+        millingRatio: { machines: inputs.millMachines, people: inputs.millPeople }
+      });
       return wb;
     });
   }

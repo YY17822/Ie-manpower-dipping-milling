@@ -1624,8 +1624,56 @@
         headerEnd: headerEnd, left: p.startCol, right: p.startCol + n - 1,
         sections: sections, font: font, numFmt: INTEGER_FORMAT
       });
+      p.totals = addBlockTotals(main, p, sections, n, font);
     });
     return { machine: machine, labor: labor, rows: opts.rows };
+  }
+
+  /*
+   * 需求工時那一塊，每一段（Cutting、Dipping）最後一列下面空一列加一列 Total（和第 2 步的 Total 同一列）：
+   *   「Total」放在這一塊左邊那一行（原本空著的那一行），各月 =SUM(P6:P8)
+   *   外觀和第 2 步一樣：淺綠底，外框粗線、裡面細線
+   * 回傳 [{ key, row, values: [各月合計] }]
+   */
+  function addBlockTotals(main, plan, sections, n, font) {
+    var THIN = { style: 'thin' }, THICK = { style: 'medium' };
+    var labelCol = plan.startCol - 1;
+    var right = plan.startCol + n - 1;
+    var out = [];
+    sections.forEach(function (s) {
+      if (!s.count) return;
+      var r = s.lastRow + 2;
+      var values = [];
+      for (var c = labelCol; c <= right; c++) {
+        var cell = main.getCell(r, c);
+        var st = {
+          font: Object.assign({}, font), fill: TOTAL_FILL,
+          border: { top: THICK, bottom: THICK, left: c === labelCol ? THICK : THIN, right: c === right ? THICK : THIN }
+        };
+        if (c === labelCol) {
+          st.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.style = st;
+          cell.value = 'Total';
+          continue;
+        }
+        var i = c - plan.startCol;
+        var sum = 0, err = null;
+        plan.rows.forEach(function (it) {
+          if (it.row < s.firstRow || it.row > s.lastRow) return;
+          var v = it.values[i];
+          if (v && typeof v === 'object') { if (!err) err = v.error; } else if (typeof v === 'number') sum += v;
+        });
+        st.numFmt = INTEGER_FORMAT;
+        st.alignment = { vertical: 'middle' };
+        cell.style = st;
+        var L = numToCol(c);
+        cell.value = { formula: 'SUM(' + L + s.firstRow + ':' + L + s.lastRow + ')', result: err ? { error: err } : sum };
+        values.push(err ? { error: err } : sum);
+      }
+      out.push({ key: s.key, row: r, values: values });
+    });
+    if (main.getColumn(labelCol).width === undefined || main.getColumn(labelCol).width < 9) main.getColumn(labelCol).width = 9;
+    return out;
   }
 
   /* ---------- MPS 匯總：各月預計總產量、前三大、其他 ---------- */
@@ -3061,7 +3109,7 @@
   var DM_ROWS = [
     { r: 3, key: 'workDays', b: '工作天數', u: 'day' },
     { r: 4, key: 'workMinutes', b: '工作時間', u: 'min/班' },
-    { r: 5, key: 'machineMinutes', b: '機台每日可動工時[C]', u: 'min/天' },
+    { r: 5, key: 'machineMinutes', b: '機台每日可動工時', u: 'min/天' },
     { r: 6, key: 'shifts', b: '工作班別數', u: '班' },
     { r: 7, key: 'attendance', b: '出勤率', u: '%' },
     { r: 8, key: 'efficiency', b: '作業效率', u: '%' },
@@ -3109,8 +3157,88 @@
   ];
 
   /*
+   * MPS 工作表某一塊需求工時（例如「機台需求工時」）在每一段的各月合計要填的公式：
+   *   有第 5 步加的 Total 列（該段最後一列之後空一列、這一塊左邊那一行寫 Total）：直接參照，例如 ='MPS'!P10
+   *   沒有：直接加總該段，例如 =SUM('MPS'!P6:P8)
+   * o: { headerEnd, title, months }
+   * 回傳 { found, cutting: [{ formula, result, fromTotal }…] 或 null, dipping: 同上 }
+   */
+  function dmBlockTotalFormulas(main, o) {
+    var out = { found: false, cutting: null, dipping: null };
+    var block = findBlock(main, o.headerEnd, o.title);
+    if (!block) return out;
+    out.found = true;
+    var ref = sheetRef(main.name);
+    findSections(main, { headerEnd: o.headerEnd, keyCol: 1 }).forEach(function (s) {
+      if (out[s.key] || !s.count) return;
+      var totalRow = s.lastRow + 2;
+      var lab = block.col > 1 ? main.findCell(totalRow, block.col - 1) : null;
+      var hasTotal = !!lab && lookupKey(lab.value) === lookupKey('Total');
+      var list = [];
+      for (var i = 0; i < o.months; i++) {
+        var c = block.col + i;
+        var L = numToCol(c);
+        var sum = 0, err = null;
+        for (var r = s.firstRow; r <= s.lastRow; r++) {
+          var v = numberOrError(main.findCell(r, c));
+          if (v.error) { if (!err) err = v.error; } else sum += v.value;
+        }
+        list.push({
+          formula: hasTotal ? ref + L + totalRow : 'SUM(' + ref + L + s.firstRow + ':' + L + s.lastRow + ')',
+          result: err ? { error: err } : sum, fromTotal: hasTotal
+        });
+      }
+      out[s.key] = list;
+    });
+    return out;
+  }
+
+  /*
+   * 總表 MPS 那兩列（Milling = 第 1 步的 Cutting、Dipping）要填的公式：該段各月的 MPS 合計。
+   *   有第 2 步的 Total 列（該段最後一列之後空一列、標籤是 Total）：直接參照它，例如 ='MPS'!E10
+   *   沒有：直接加總該段，當月加 WIP，例如 =SUM('MPS'!D6:D8)+SUM('MPS'!E6:E8)、=SUM('MPS'!F6:F8)
+   * o: { headerEnd, wipCol, monthCols }
+   * 回傳 { found, cutting: [{ formula, result, fromTotal }…6] 或 null, dipping: 同上, sections }
+   */
+  function dmMpsFormulas(main, o) {
+    var plan = planSectionTotals(main, { headerEnd: o.headerEnd, keyCol: 1, wipCol: o.wipCol, monthCols: o.monthCols });
+    var out = { found: plan.found, cutting: null, dipping: null, sections: plan.sections };
+    if (!plan.found) return out;
+    var ref = sheetRef(main.name);
+    var wipL = numToCol(o.wipCol);
+    plan.sections.forEach(function (s) {
+      if (out[s.key] || !s.count) return;
+      var hasTotal = false;
+      if (plan.labelCol) {
+        var lab = main.findCell(s.totalRow, plan.labelCol);
+        hasTotal = !!lab && lookupKey(lab.value) === lookupKey('Total');
+      }
+      out[s.key] = s.months.map(function (m, i) {
+        var L = numToCol(m.col);
+        var formula;
+        if (hasTotal) formula = ref + L + s.totalRow;
+        else {
+          var range = L + s.firstRow + ':' + L + s.lastRow;
+          formula = (i === 0 ? 'SUM(' + ref + wipL + s.firstRow + ':' + wipL + s.lastRow + ')+' : '') + 'SUM(' + ref + range + ')';
+        }
+        return { formula: formula, result: m.error ? { error: m.error } : m.total, fromTotal: hasTotal };
+      });
+    });
+    return out;
+  }
+
+  /*
    * 在活頁簿裡建立 Dipping_Milling 版的總表（已經有同名工作表就換掉）。
    * o.monthRefs  [{ sheet, col, row, text }] 月份表頭要參照的儲存格（MPS 的機台需求工時月份）；沒有就留空白
+   * o.mps        dmMpsFormulas() 的結果：MPS Milling、Dipping 兩列各月的公式
+   * o.millingHours  dmBlockTotalFormulas() 的 cutting：Milling站 機台需求工時各月的公式
+   * o.millingRatio  { machines, people } Milling站 人機比的機台數、人員數
+   * o.inputs     使用者在畫面上輸入的值（沒填的是 null，那一格留空白）：
+   *   workDays      [6 個月] 工作天數
+   *   workHours、restHours   工作時數、休息時數（小時，六個月共用）→ 工作時間 =(工作時數-休息時數)*60（分鐘）
+   *   machineHours  [6 個月] 機台每日可動工時（小時）→ =小時*60（分鐘）
+   *   shifts        [6 個月] 工作班別數
+   *   attendance、efficiency  [6 個月] 出勤率、作業效率（小數，0.95 = 95%）
    * 回傳 { worksheet, rows: { key: 列號 }, monthCol, months }
    */
   function addDmReportSheet(wb, o) {
@@ -3195,6 +3323,82 @@
       ws.mergeCellsWithoutStyle(u.top, R.unitCol, u.bottom, R.unitCol);
     });
 
+    // MPS：Milling、Dipping 各月的合計（公式，由 dmMpsFormulas() 算好傳進來）
+    var mps = (o && o.mps) || {};
+    [['cutting', 'mpsMilling'], ['dipping', 'mpsDipping']].forEach(function (p) {
+      var list = mps[p[0]];
+      if (!list) return;
+      for (var mm = 0; mm < R.months && mm < list.length; mm++) {
+        if (!list[mm]) continue;
+        var cell = ws.getCell(rows[p[1]], R.monthCol + mm);
+        cell.value = { formula: list[mm].formula, result: list[mm].result };
+        cell.style = Object.assign({}, cell.style, { numFmt: '#,##0' });
+      }
+    });
+
+    // 使用者輸入的值
+    var inp = (o && o.inputs) || {};
+    function isN(v) { return typeof v === 'number' && !isNaN(v); }
+    function fmtNum(v) { return String(Math.round(v * 1e6) / 1e6); }
+    function put(key, mm, value, numFmt) {
+      var cell = ws.getCell(rows[key], R.monthCol + mm);
+      cell.value = value;
+      if (numFmt) cell.style = Object.assign({}, cell.style, { numFmt: numFmt });
+    }
+    for (m = 0; m < R.months; m++) {
+      var wd = inp.workDays && inp.workDays[m];
+      if (isN(wd)) put('workDays', m, wd, 'General');
+      if (isN(inp.workHours) && isN(inp.restHours)) {
+        put('workMinutes', m, {
+          formula: '(' + fmtNum(inp.workHours) + '-' + fmtNum(inp.restHours) + ')*60',
+          result: (inp.workHours - inp.restHours) * 60
+        }, '#,##0');
+      }
+      var mh = inp.machineHours && inp.machineHours[m];
+      if (isN(mh)) put('machineMinutes', m, { formula: fmtNum(mh) + '*60', result: mh * 60 }, '#,##0');
+      var sh = inp.shifts && inp.shifts[m];
+      if (isN(sh)) put('shifts', m, sh, 'General');
+      var at = inp.attendance && inp.attendance[m];
+      if (isN(at)) put('attendance', m, at, '0.0%');
+      var ef = inp.efficiency && inp.efficiency[m];
+      if (isN(ef)) put('efficiency', m, ef, '0.0%');
+    }
+    if (isN(inp.workHours) && isN(inp.restHours)) {
+      ws.getCell(rows.workMinutes, R.noteCol).value =
+        '工作 ' + fmtNum(inp.workHours) + ' 小時 − 休息 ' + fmtNum(inp.restHours) + ' 小時，× 60';
+    }
+    if (inp.machineHours && inp.machineHours.some(isN)) {
+      ws.getCell(rows.machineMinutes, R.noteCol).value = '輸入的小時 × 60';
+    }
+
+    // Milling站
+    //   機台需求工時：參照 MPS 工作表 Milling（Cutting）段「機台需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
+    //   人機比：=機台數/人員數（六個月共用），Notes 寫「1 人顧 4 機」
+    //   開機數：=ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)
+    //   顧機人數：=ROUNDUP(開機數/人機比,1)
+    var mh2 = (o && o.millingHours) || null;
+    var ratio = (o && o.millingRatio) || {};
+    var hasRatio = isN(ratio.machines) && isN(ratio.people) && ratio.people > 0;
+    function addr(key, mm) { return numToCol(R.monthCol + mm) + rows[key]; }
+    for (m = 0; m < R.months; m++) {
+      if (mh2 && mh2[m]) put('millingHours', m, { formula: mh2[m].formula, result: mh2[m].result }, '#,##0');
+      if (hasRatio) {
+        put('millingRatio', m, {
+          formula: fmtNum(ratio.machines) + '/' + fmtNum(ratio.people), result: ratio.machines / ratio.people
+        }, '0.0#');
+      }
+      put('millingMachines', m, {
+        formula: 'ROUNDUP(' + addr('millingHours', m) + '/((' + addr('workDays', m) + '+' + addr('millingOtDays', m) + ')*' +
+          addr('machineMinutes', m) + '),1)'
+      }, '0.0');
+      put('millingTenders', m, {
+        formula: 'ROUNDUP(' + addr('millingMachines', m) + '/' + addr('millingRatio', m) + ',1)'
+      }, '0.0');
+    }
+    if (hasRatio) {
+      ws.getCell(rows.millingRatio, R.noteCol).value = fmtNum(ratio.people) + ' 人顧 ' + fmtNum(ratio.machines) + ' 機';
+    }
+
     // 列印：橫向、一頁寬
     Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
 
@@ -3255,7 +3459,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 10,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 16,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -3325,6 +3529,8 @@
     DM_REPORT: DM_REPORT,
     DM_ROWS: DM_ROWS,
     addDmReportSheet: addDmReportSheet,
+    dmMpsFormulas: dmMpsFormulas,
+    dmBlockTotalFormulas: dmBlockTotalFormulas,
     addIgnoredErrors: addIgnoredErrors,
     toBlob: toBlob
   };
