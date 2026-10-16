@@ -12,6 +12,7 @@
  *       人機比         輸入機台數、人員數（六個月共用），填 =機台數/人員數；Notes 寫「1 人顧 4 機」
  *       開機數         =ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)
  *       顧機人數       =ROUNDUP(開機數/人機比,1)
+ *     Dipping站     同上（參照 Dipping 段的 Total 列、自己的機台數和人員數、加班天數-Dipping）
  *   其他格的內容（公式）之後再一項一項補上。
  *
  *   版面（B 到 K 行、第 2 到 34 列，設定在 js/excel-io.js 的 DM_REPORT、DM_ROWS）：
@@ -66,6 +67,11 @@
     { key: 'attendance', label: '出勤率', unit: '%', remember: true, copy: true, percent: true },
     { key: 'efficiency', label: '作業效率', unit: '%', remember: true, copy: true, percent: true }
   ];
+  // 人機比：每一站輸入一組機台數、人員數（六個月共用）
+  var STATIONS = [
+    { key: 'cutting', label: 'Milling站', machines: 'millMachines', people: 'millPeople', id: 'mill' },
+    { key: 'dipping', label: 'Dipping站', machines: 'dipMachines', people: 'dipPeople', id: 'dip' }
+  ];
   var INPUT_KEY = IEApp.storeKey('report-dm');
   var INP = loadInputs();       // { workDays: ['', …], machineHours: [...], …, workHours: '', restHours: '' }（輸入框的文字）
 
@@ -73,7 +79,8 @@
   function loadInputs() {
     var s = {};
     try { s = JSON.parse(localStorage.getItem(INPUT_KEY) || '{}') || {}; } catch (e) { s = {}; }
-    var out = { workHours: s.workHours || '', restHours: s.restHours || '', millMachines: s.millMachines || '', millPeople: s.millPeople || '' };
+    var out = { workHours: s.workHours || '', restHours: s.restHours || '' };
+    STATIONS.forEach(function (st) { out[st.machines] = s[st.machines] || ''; out[st.people] = s[st.people] || ''; });
     GRID.forEach(function (g) {
       var saved = g.remember && Array.isArray(s[g.key]) ? s[g.key] : [];
       out[g.key] = blankMonths().map(function (v, i) { return saved[i] === undefined ? '' : String(saved[i]); });
@@ -81,7 +88,8 @@
     return out;
   }
   function saveInputs() {
-    var s = { workHours: INP.workHours, restHours: INP.restHours, millMachines: INP.millMachines, millPeople: INP.millPeople };
+    var s = { workHours: INP.workHours, restHours: INP.restHours };
+    STATIONS.forEach(function (st) { s[st.machines] = INP[st.machines]; s[st.people] = INP[st.people]; });
     GRID.forEach(function (g) { if (g.remember) s[g.key] = INP[g.key]; });
     try { localStorage.setItem(INPUT_KEY, JSON.stringify(s)); } catch (e) { /* 存不了就算了 */ }
   }
@@ -115,13 +123,15 @@
       else if (isNaN(v)) bad.push(p[1] + '「' + INP[p[0]] + '」');
       values[p[0]] = v === null || isNaN(v) ? null : v;
     });
-    [['millMachines', 'Milling站的機台數'], ['millPeople', 'Milling站的人員數']].forEach(function (p) {
-      var v = toValue(INP[p[0]], false);
-      if (v === null) blank.push(p[1]);
-      else if (isNaN(v)) bad.push(p[1] + '「' + INP[p[0]] + '」');
-      values[p[0]] = v === null || isNaN(v) ? null : v;
+    STATIONS.forEach(function (st) {
+      [[st.machines, st.label + '的機台數'], [st.people, st.label + '的人員數']].forEach(function (p) {
+        var v = toValue(INP[p[0]], false);
+        if (v === null) blank.push(p[1]);
+        else if (isNaN(v)) bad.push(p[1] + '「' + INP[p[0]] + '」');
+        values[p[0]] = v === null || isNaN(v) ? null : v;
+      });
+      if (values[st.people] === 0) bad.push(st.label + '的人員數不能是 0');
     });
-    if (values.millPeople === 0) bad.push('Milling站的人員數不能是 0');
     if (values.workHours !== null && values.restHours !== null && values.restHours > values.workHours) {
       bad.push('休息時數比工作時數還多');
     }
@@ -290,11 +300,20 @@
     els.restHours = h('input', { id: 'f9-rest-h', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.restHours, placeholder: '例如 1' });
     els.workMinutes = h('span', { class: 'hint-inline' });
     els.workHours.addEventListener('input', function () { INP.workHours = els.workHours.value; onType(); });
-    els.millMachines = h('input', { id: 'f9-mill-m', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.millMachines, placeholder: '例如 4' });
-    els.millPeople = h('input', { id: 'f9-mill-p', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.millPeople, placeholder: '例如 1' });
-    els.millRatio = h('span', { class: 'hint-inline' });
-    els.millMachines.addEventListener('input', function () { INP.millMachines = els.millMachines.value; onType(); });
-    els.millPeople.addEventListener('input', function () { INP.millPeople = els.millPeople.value; onType(); });
+    // 人機比：每一站一列（機台數、人員數）
+    els.ratioText = {};
+    var ratioRows = STATIONS.map(function (st) {
+      var mIn = h('input', { id: 'f9-' + st.id + '-m', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP[st.machines], placeholder: '例如 4' });
+      var pIn = h('input', { id: 'f9-' + st.id + '-p', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP[st.people], placeholder: '例如 1' });
+      mIn.addEventListener('input', function () { INP[st.machines] = mIn.value; onType(); });
+      pIn.addEventListener('input', function () { INP[st.people] = pIn.value; onType(); });
+      els.ratioText[st.key] = h('span', { class: 'hint-inline' });
+      return h('div', { class: 'field-row' },
+        h('span', { class: 'field-label label-fixed', text: st.label }),
+        h('label', { for: 'f9-' + st.id + '-m', text: '機台數' }), mIn, h('span', { text: '台' }),
+        h('label', { for: 'f9-' + st.id + '-p', text: '人員數' }), pIn, h('span', { text: '人' }),
+        els.ratioText[st.key]);
+    });
     els.restHours.addEventListener('input', function () { INP.restHours = els.restHours.value; onType(); });
 
     panel.appendChild(h('div', { class: 'step-head' },
@@ -319,12 +338,9 @@
         buildInputGrid(),
         h('p', { class: 'hint', text: '出勤率、作業效率輸入 95 或 95% 都代表 95%。機台每日可動工時、工作班別數、出勤率、作業效率只要填第一個月，再按「套用到全部月份」。機台每日可動工時輸入小時，總表會換算成分鐘（例如 =22*60）。工作天數每個月不同，不會記住；其他會記住上次輸入的值。沒填的格子在總表留空白。' })),
       h('li', { class: 'task' },
-        h('h2', { text: 'Milling站 人機比' }),
-        h('div', { class: 'field-row' },
-          h('label', { for: 'f9-mill-m', text: '機台數' }), els.millMachines, h('span', { text: '台' }),
-          h('label', { for: 'f9-mill-p', text: '人員數' }), els.millPeople, h('span', { text: '人' }),
-          els.millRatio),
-        h('p', { class: 'hint', text: '六個月共用。總表的人機比填公式 =機台數/人員數，Notes 寫「幾人顧幾機」。開機數 =ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)，顧機人數 =ROUNDUP(開機數/人機比,1)，都會自動填公式。會記住上次輸入的值。' })),
+        h('h2', { text: '人機比' }),
+        ratioRows,
+        h('p', { class: 'hint', text: '每一站一組，六個月共用。總表的人機比填公式 =機台數/人員數，Notes 寫「幾人顧幾機」。開機數 =ROUNDUP(機台需求工時/((工作天數+該站的加班天數)*機台每日可動工時),1)，顧機人數 =ROUNDUP(開機數/人機比,1)，都會自動填公式。會記住上次輸入的值。' })),
       h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
         els.summary, els.notes, els.layout,
@@ -435,13 +451,16 @@
       (mps && mps.cutting && mps.dipping ? '' : '找不到的那一列先留空白（MPS 工作表裡要有第 1 步的「Cutting（…）」「Dipping（…）」標題和料號）。')));
 
     var mt = work.machineTotals;
-    if (mt && mt.cutting) {
-      els.notes.appendChild(h('li', null, 'Milling站 機台需求工時（公式）：' +
-        (mt.cutting[0].fromTotal ? '參照第 5 步的 Total 列' : '直接加總該段') + '，例如 =' + mt.cutting[0].formula + '。'));
-    } else {
-      els.notes.appendChild(h('li', { class: 'is-warn' },
-        'MPS 工作表找不到 Milling（Cutting）段的「' + MONTH_TITLE + '」（第 5 步），Milling站的機台需求工時先留空白。'));
-    }
+    STATIONS.forEach(function (st) {
+      var list = mt && mt[st.key];
+      if (list) {
+        els.notes.appendChild(h('li', null, st.label + ' 機台需求工時（公式）：' +
+          (list[0].fromTotal ? '參照第 5 步的 Total 列' : '直接加總該段') + '，例如 =' + list[0].formula + '。'));
+      } else {
+        els.notes.appendChild(h('li', { class: 'is-warn' },
+          'MPS 工作表找不到' + st.label.replace('站', '') + '段的「' + MONTH_TITLE + '」（第 5 步），' + st.label + '的機台需求工時先留空白。'));
+      }
+    });
 
     var read = readInputs();
     if (read.bad.length) {
@@ -453,7 +472,7 @@
         '還沒填：' + read.blank.slice(0, 12).join('、') + (read.blank.length > 12 ? ' …等 ' + read.blank.length + ' 格' : '') +
         '。沒填的格子在總表留空白，一樣可以匯出。'));
     }
-    els.notes.appendChild(h('li', null, '目前填入第 3–14 列：工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站的四列；其他格之後再補上。'));
+    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站各四列（機台需求工時、人機比、開機數、顧機人數）；其他格之後再補上。'));
 
     var inputs = read.values;
     els.exportBtn.disabled = false;
@@ -477,9 +496,11 @@
     var w = toValue(INP.workHours, false), r = toValue(INP.restHours, false);
     els.workMinutes.textContent = w !== null && r !== null && !isNaN(w) && !isNaN(r)
       ? '＝ 每班 ' + Math.round((w - r) * 60 * 100) / 100 + ' 分鐘' : '';
-    var mm = toValue(INP.millMachines, false), pp = toValue(INP.millPeople, false);
-    els.millRatio.textContent = mm !== null && pp !== null && !isNaN(mm) && !isNaN(pp) && pp > 0
-      ? '＝ 人機比 ' + Math.round(mm / pp * 100) / 100 + '（' + pp + ' 人顧 ' + mm + ' 機）' : '';
+    STATIONS.forEach(function (st) {
+      var mm = toValue(INP[st.machines], false), pp = toValue(INP[st.people], false);
+      els.ratioText[st.key].textContent = mm !== null && pp !== null && !isNaN(mm) && !isNaN(pp) && pp > 0
+        ? '＝ 人機比 ' + Math.round(mm / pp * 100) / 100 + '（' + pp + ' 人顧 ' + mm + ' 機）' : '';
+    });
   }
 
   function rowKeys() {
@@ -501,7 +522,9 @@
       XIO.addDmReportSheet(wb, {
         monthRefs: refs, inputs: inputs, mps: main ? mpsFormulas(main, src) : null,
         millingHours: mt ? mt.cutting : null,
-        millingRatio: { machines: inputs.millMachines, people: inputs.millPeople }
+        millingRatio: { machines: inputs.millMachines, people: inputs.millPeople },
+        dippingHours: mt ? mt.dipping : null,
+        dippingRatio: { machines: inputs.dipMachines, people: inputs.dipPeople }
       });
       return wb;
     });

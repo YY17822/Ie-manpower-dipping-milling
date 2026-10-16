@@ -3233,6 +3233,7 @@
    * o.mps        dmMpsFormulas() 的結果：MPS Milling、Dipping 兩列各月的公式
    * o.millingHours  dmBlockTotalFormulas() 的 cutting：Milling站 機台需求工時各月的公式
    * o.millingRatio  { machines, people } Milling站 人機比的機台數、人員數
+   * o.dippingHours、o.dippingRatio   Dipping站，同上
    * o.inputs     使用者在畫面上輸入的值（沒填的是 null，那一格留空白）：
    *   workDays      [6 個月] 工作天數
    *   workHours、restHours   工作時數、休息時數（小時，六個月共用）→ 工作時間 =(工作時數-休息時數)*60（分鐘）
@@ -3371,33 +3372,38 @@
       ws.getCell(rows.machineMinutes, R.noteCol).value = '輸入的小時 × 60';
     }
 
-    // Milling站
-    //   機台需求工時：參照 MPS 工作表 Milling（Cutting）段「機台需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
+    // Milling站、Dipping站（算法相同，各自的列）
+    //   機台需求工時：參照 MPS 工作表該段「機台需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
     //   人機比：=機台數/人員數（六個月共用），Notes 寫「1 人顧 4 機」
-    //   開機數：=ROUNDUP(機台需求工時/((工作天數+加班天數-銑切)*機台每日可動工時),1)
+    //   開機數：=ROUNDUP(機台需求工時/((工作天數+該站的加班天數)*機台每日可動工時),1)
     //   顧機人數：=ROUNDUP(開機數/人機比,1)
-    var mh2 = (o && o.millingHours) || null;
-    var ratio = (o && o.millingRatio) || {};
-    var hasRatio = isN(ratio.machines) && isN(ratio.people) && ratio.people > 0;
     function addr(key, mm) { return numToCol(R.monthCol + mm) + rows[key]; }
-    for (m = 0; m < R.months; m++) {
-      if (mh2 && mh2[m]) put('millingHours', m, { formula: mh2[m].formula, result: mh2[m].result }, '#,##0');
-      if (hasRatio) {
-        put('millingRatio', m, {
-          formula: fmtNum(ratio.machines) + '/' + fmtNum(ratio.people), result: ratio.machines / ratio.people
-        }, '0.0#');
+    [
+      { p: 'milling', hours: o && o.millingHours, ratio: o && o.millingRatio },
+      { p: 'dipping', hours: o && o.dippingHours, ratio: o && o.dippingRatio }
+    ].forEach(function (st) {
+      var k = function (name) { return st.p + name; };     // 例如 millingHours、dippingRatio
+      var ratio = st.ratio || {};
+      var hasRatio = isN(ratio.machines) && isN(ratio.people) && ratio.people > 0;
+      for (var mm = 0; mm < R.months; mm++) {
+        if (st.hours && st.hours[mm]) put(k('Hours'), mm, { formula: st.hours[mm].formula, result: st.hours[mm].result }, '#,##0');
+        if (hasRatio) {
+          put(k('Ratio'), mm, {
+            formula: fmtNum(ratio.machines) + '/' + fmtNum(ratio.people), result: ratio.machines / ratio.people
+          }, '0.0#');
+        }
+        put(k('Machines'), mm, {
+          formula: 'ROUNDUP(' + addr(k('Hours'), mm) + '/((' + addr('workDays', mm) + '+' + addr(k('OtDays'), mm) + ')*' +
+            addr('machineMinutes', mm) + '),1)'
+        }, '0.0');
+        put(k('Tenders'), mm, {
+          formula: 'ROUNDUP(' + addr(k('Machines'), mm) + '/' + addr(k('Ratio'), mm) + ',1)'
+        }, '0.0');
       }
-      put('millingMachines', m, {
-        formula: 'ROUNDUP(' + addr('millingHours', m) + '/((' + addr('workDays', m) + '+' + addr('millingOtDays', m) + ')*' +
-          addr('machineMinutes', m) + '),1)'
-      }, '0.0');
-      put('millingTenders', m, {
-        formula: 'ROUNDUP(' + addr('millingMachines', m) + '/' + addr('millingRatio', m) + ',1)'
-      }, '0.0');
-    }
-    if (hasRatio) {
-      ws.getCell(rows.millingRatio, R.noteCol).value = fmtNum(ratio.people) + ' 人顧 ' + fmtNum(ratio.machines) + ' 機';
-    }
+      if (hasRatio) {
+        ws.getCell(rows[k('Ratio')], R.noteCol).value = fmtNum(ratio.people) + ' 人顧 ' + fmtNum(ratio.machines) + ' 機';
+      }
+    });
 
     // 列印：橫向、一頁寬
     Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
@@ -3459,7 +3465,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 16,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 17,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
