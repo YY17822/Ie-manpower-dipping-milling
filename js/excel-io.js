@@ -539,6 +539,98 @@
     return { lastRow: lastRow, colCount: colCount };
   }
 
+  /* ---------- 表格外觀：框線、字型（MPS 工作表上各塊表格共用） ---------- */
+
+  var BORDER_THIN = { style: 'thin' };
+  var BORDER_THICK = { style: 'medium' };
+
+  // 一塊表格（top..bottom 列 × left..right 行）：外框粗線、裡面細線。只改框線，其他樣式不動。
+  function boxBorders(ws, top, left, bottom, right) {
+    if (bottom < top || right < left) return;
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        var cell = ws.getCell(r, c);
+        var st = Object.assign({}, cell.style);
+        st.border = {
+          top: r === top ? BORDER_THICK : BORDER_THIN,
+          bottom: r === bottom ? BORDER_THICK : BORDER_THIN,
+          left: c === left ? BORDER_THICK : BORDER_THIN,
+          right: c === right ? BORDER_THICK : BORDER_THIN
+        };
+        cell.style = st;
+      }
+    }
+  }
+
+  // 字型只留名稱、大小（和要加的粗體等），拿掉顏色、底線等（原報表有藍字之類的，抄過來會很雜）
+  function plainFont(font, extra) {
+    var f = {};
+    if (font) {
+      if (font.name) f.name = font.name;
+      if (font.size) f.size = font.size;
+      if (font.family) f.family = font.family;
+      if (font.charset) f.charset = font.charset;
+    }
+    return Object.assign(f, extra || {});
+  }
+
+  // MPS 工作表的基本字型：第一段第一列料號那一格的字型（拿掉顏色、粗體）
+  var DEFAULT_FONT = { name: 'Arial', size: 10 };
+  function sheetFont(ws, headerEnd) {
+    var secs = findSections(ws, { headerEnd: headerEnd, keyCol: 1 });
+    var row = secs.length && secs[0].count ? secs[0].firstRow : headerEnd + 1;
+    var cell = ws.findCell(row, 1);
+    var f = plainFont(cell && cell.font);
+    return f.name ? f : Object.assign({}, DEFAULT_FONT);
+  }
+
+  // 把一個區域的字型換成 font（保留粗體與否可以選），其他樣式不動
+  function setFont(ws, top, left, bottom, right, font) {
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        var cell = ws.getCell(r, c);
+        cell.style = Object.assign({}, cell.style, { font: Object.assign({}, font) });
+      }
+    }
+  }
+
+  /*
+   * 新增的一塊（CT.、需求工時等）統一樣式：
+   *   表頭（第 2 列到表頭最後一列）：基本字型、置中、外框粗線裡面細線
+   *   每一段（Cutting、Dipping）的資料列：基本字型、數字格式 numFmt、外框粗線裡面細線；
+   *     原本標了淺紅色（找不到 CT.）的格子保留淺紅色，其他底色拿掉
+   */
+  function styleBlock(ws, o) {
+    var font = o.font;
+    var top = o.headerEnd >= 2 ? 2 : 1;
+    var r, c, cell, old;
+    for (r = top; r <= o.headerEnd; r++) {
+      for (c = o.left; c <= o.right; c++) {
+        cell = ws.getCell(r, c);
+        cell.style = {
+          font: Object.assign({}, font),
+          alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }
+        };
+      }
+    }
+    boxBorders(ws, top, o.left, o.headerEnd, o.right);
+    o.sections.forEach(function (s) {
+      if (!s.count) return;
+      for (r = s.firstRow; r <= s.lastRow; r++) {
+        for (c = o.left; c <= o.right; c++) {
+          cell = ws.getCell(r, c);
+          old = cell.style || {};
+          var st = { font: Object.assign({}, font), alignment: { vertical: 'middle' } };
+          var fmt = (o.numFmtByCol && o.numFmtByCol[c]) || o.numFmt || old.numFmt;
+          if (fmt) st.numFmt = fmt;
+          if (isMissingFill(old.fill)) st.fill = MISSING_FILL;
+          cell.style = st;
+        }
+      }
+      boxBorders(ws, s.firstRow, o.left, s.lastRow, o.right);
+    });
+  }
+
   /* ---------- 篩選並產生新的活頁簿 ---------- */
 
   function cleanObject(o) {
@@ -695,6 +787,30 @@
           key: sec.key, title: sec.title, titleRow: titleRow,
           firstRow: first, lastRow: outRow - 1, count: sec.rows.length
         });
+      });
+
+      // 外觀：表頭（第 2 列到表頭最後一列）一塊、每一段的資料一塊，外框粗線、裡面細線；字一律黑色
+      var n = keepCols.length;
+      var hTop = headerEnd >= 2 ? 2 : 1;
+      var font = plainFont(baseFont);
+      if (!font.name) font = Object.assign({}, DEFAULT_FONT);
+      if (headerEnd >= 1) {
+        for (r = hTop; r <= headerEnd; r++) {
+          for (i = 1; i <= n; i++) {
+            var hc = ows.getCell(r, i);
+            hc.style = Object.assign({}, hc.style, { font: plainFont(hc.font && hc.font.name ? hc.font : font) });
+          }
+        }
+        boxBorders(ows, hTop, 1, headerEnd, n);
+      }
+      outSections.forEach(function (s) {
+        ows.getCell(s.titleRow, 1).style = {
+          font: plainFont(font, { bold: true }),
+          alignment: { horizontal: 'center', vertical: 'middle' }
+        };
+        if (!s.count) return;
+        setFont(ows, s.firstRow, 1, s.lastRow, n, font);
+        boxBorders(ows, s.firstRow, 1, s.lastRow, n);
       });
     } else {
       // 不分段：選取行的值符合才保留
@@ -1152,7 +1268,9 @@
 
   /* ---------- Dipping_Milling：機台 CT.、目檢 CT. 兩行 ---------- */
 
-  var CT_HEADERS = { machine: '機台 CT.', labor: '目檢 CT.' };
+  var CT_HEADERS = { machine: '機台 CT.', labor: '目檢 CT.', rate: '目檢-檢驗率' };
+  var CT_FORMAT = '0.000';     // CT. 顯示到小數三位（儲存格裡仍是完整的數值）
+  var RATE_FORMAT = '0.0%';    // 目檢-檢驗率顯示成 %
 
   // 分段 MPS 裡要查 CT. 的列：Cutting、Dipping 兩段的資料列（標題、空白、Total 列都不算）
   function sectionDataRows(main, headerEnd) {
@@ -1187,7 +1305,49 @@
     if (!opts.index) opts.index = buildIndex(ref, o.refKeyCol);
     var machine = planLookup(main, ref, ctOptions(opts, 'machine'));
     var labor = planLookup(main, ref, ctOptions(opts, 'labor', machine.targetCol + 1));
-    return { machine: machine, labor: labor, rows: opts.rows };
+    var rate = planRateColumn(main, o.dataStartRow - 1, labor.targetCol);
+    return { machine: machine, labor: labor, rate: rate, rows: opts.rows };
+  }
+
+  /*
+   * 目檢-檢驗率：放在目檢 CT. 右邊一行（已經有這個表頭就用原本那一行）。
+   * 數值是使用者在畫面上輸入的，Cutting、Dipping 各一個，填到該段的每一個料號列（數值，不是公式）。
+   */
+  function planRateColumn(main, headerEnd, laborCol) {
+    var existing = findHeaderColumn(main, headerEnd, CT_HEADERS.rate);
+    return { targetCol: existing || laborCol + 1, isNew: !existing };
+  }
+
+  // o.rates = { cutting: 0.9, dipping: 1 }（小數，0.9 = 90%）；沒給的段留空白
+  function addRateColumn(main, o, laborCol, keyCol) {
+    var headerEnd = o.dataStartRow - 1;
+    var plan = planRateColumn(main, headerEnd, laborCol);
+    var col = plan.targetCol;
+    var top = headerEnd >= 2 ? 2 : 1;
+    // 表頭：第 2 列到表頭最後一列合併（和 CT. 一樣）
+    if (headerEnd >= 1) {
+      if (plan.isNew && headerEnd > top) main.mergeCellsWithoutStyle(top, col, headerEnd, col);
+      var head = main.getCell(top, col);
+      (head.isMerged ? head.master : head).value = CT_HEADERS.rate;
+    }
+    // 重做時先清掉這一行原本的數值
+    if (!plan.isNew) {
+      eachStoredRow(main, function (row, r) {
+        if (r <= headerEnd) return;
+        var old = row.findCell(col);
+        if (old) old.value = null;
+      });
+    }
+    findSections(main, { headerEnd: headerEnd, keyCol: 1 }).forEach(function (s) {
+      var v = o.rates ? o.rates[s.key] : undefined;
+      for (var r = s.firstRow; r <= s.lastRow; r++) {
+        var key = main.findCell(r, keyCol || 1);
+        if (!key || normalizeText(displayText(key)) === '') continue;
+        main.getCell(r, col).value = typeof v === 'number' && !isNaN(v) ? v : null;
+      }
+    });
+    if (plan.isNew) main.getColumn(col).width = 11;
+    return plan;
   }
 
   // 寫進工作表：每一列填公式，例如 ='P003'!N5/'P003'!K5（機台 CT.）、='P003'!M5/'P003'!K5（目檢 CT.）。
@@ -1198,7 +1358,20 @@
     if (!opts.index) opts.index = buildIndex(ref, o.refKeyCol);
     var machine = addLookupColumn(main, ref, ctOptions(opts, 'machine'));
     var labor = addLookupColumn(main, ref, ctOptions(opts, 'labor', machine.targetCol + 1));
-    return { machine: machine, labor: labor, rows: opts.rows };
+    var rate = addRateColumn(main, o, labor.targetCol, o.keyCol);
+    // 外觀：機台 CT.、目檢 CT.、目檢-檢驗率三行當成一塊（表頭一框、每一段一框），字一律黑色；
+    // CT. 顯示到小數三位，檢驗率顯示成 %
+    var headerEnd = o.dataStartRow - 1;
+    var fmts = {};
+    fmts[machine.targetCol] = CT_FORMAT;
+    fmts[labor.targetCol] = CT_FORMAT;
+    fmts[rate.targetCol] = RATE_FORMAT;
+    var cols = [machine.targetCol, labor.targetCol, rate.targetCol];
+    styleBlock(main, {
+      headerEnd: headerEnd, left: Math.min.apply(null, cols), right: Math.max.apply(null, cols),
+      sections: findSections(main, { headerEnd: headerEnd, keyCol: 1 }), font: sheetFont(main, headerEnd), numFmtByCol: fmts
+    });
+    return { machine: machine, labor: labor, rate: rate, rows: opts.rows };
   }
 
   /* ---------- 需求工時：各月數量 × CT. ---------- */
@@ -1265,6 +1438,8 @@
     });
 
     var ctL = numToCol(o.ctCol), wipL = numToCol(o.wipCol);
+    // o.rateCol（可省略）：再乘上這一行（目檢-檢驗率），例如 =(D6+E6)*M6*N6
+    var rateL = o.rateCol ? numToCol(o.rateCol) : '';
     var rows = [];
     var noCt = 0, errors = 0;
     // 要算的列：有給 o.rows（Cutting、Dipping 兩段的資料列）就只算那些列
@@ -1282,18 +1457,24 @@
       if (normalizeText(label) === '') continue;
       var ct = numberOrError(row.findCell(o.ctCol));
       var wip = numberOrError(row.findCell(o.wipCol));
-      var item = { row: r, label: label, ct: ct.error ? ct.error : ct.value, noCt: !!ct.blank, values: [], formulas: [] };
+      var rate = o.rateCol ? numberOrError(row.findCell(o.rateCol)) : { value: 1 };
+      var item = {
+        row: r, label: label, ct: ct.error ? ct.error : ct.value, noCt: !!ct.blank,
+        rate: rate.error ? rate.error : rate.value, noRate: !!(o.rateCol && rate.blank), values: [], formulas: []
+      };
+      var times = ctL + r + (rateL ? '*' + rateL + r : '');
+      var factor = ct.value * rate.value;
       var bad = false;
       o.monthCols.forEach(function (c, i) {
         var qty = numberOrError(row.findCell(c));
         var qL = numToCol(c);
-        var err = ct.error || qty.error || (i === 0 ? wip.error : null);
+        var err = ct.error || rate.error || qty.error || (i === 0 ? wip.error : null);
         if (i === 0) {
-          item.formulas.push('(' + wipL + r + '+' + qL + r + ')*' + ctL + r);
-          item.values.push(err ? { error: err } : (wip.value + qty.value) * ct.value);
+          item.formulas.push('(' + wipL + r + '+' + qL + r + ')*' + times);
+          item.values.push(err ? { error: err } : (wip.value + qty.value) * factor);
         } else {
-          item.formulas.push(qL + r + '*' + ctL + r);
-          item.values.push(err ? { error: err } : qty.value * ct.value);
+          item.formulas.push(qL + r + '*' + times);
+          item.values.push(err ? { error: err } : qty.value * factor);
         }
         if (err) bad = true;
       });
@@ -1405,18 +1586,19 @@
   /*
    * 兩塊需求工時：
    *   機台需求工時   各月數量 × 機台 CT.（當月是 (WIP + 當月數量) × 機台 CT.）
-   *   目檢需求工時   各月數量 × 目檢 CT.（當月是 (WIP + 當月數量) × 目檢 CT.）
-   * 位置：機台需求工時從「目檢 CT. 之後空一行」開始（原本最後一行之後空一行），
+   *   目檢需求工時   各月數量 × 目檢 CT. × 目檢-檢驗率（當月是 (WIP + 當月數量) × 目檢 CT. × 目檢-檢驗率）
+   * 位置：機台需求工時從「目檢-檢驗率之後空一行」開始（原本最後一行之後空一行），
    *       目檢需求工時從「機台需求工時最後一個月之後空一行」開始；已經有同名大表頭就覆蓋原本的位置。
    * 只算 Cutting、Dipping 兩段的資料列（o.rows，沒給就自己找）。
    *
-   * o: { dataStartRow, keyCol, wipCol, monthCols, machineCtCol, laborCtCol, headers, rows }
+   * o: { dataStartRow, keyCol, wipCol, monthCols, machineCtCol, laborCtCol, laborRateCol, headers, rows }
    * 回傳 { machine: planDemand 的結果, labor: planDemand 的結果, rows }
    */
   function demandOptions(o, which, startCol) {
     return {
       dataStartRow: o.dataStartRow, keyCol: o.keyCol, wipCol: o.wipCol, monthCols: o.monthCols,
       ctCol: which === 'machine' ? o.machineCtCol : o.laborCtCol,
+      rateCol: which === 'labor' ? o.laborRateCol : undefined,      // 目檢需求工時再乘目檢-檢驗率
       title: DEMAND_TITLES[which], headers: o.headers, rows: o.rows, startCol: startCol
     };
   }
@@ -1432,6 +1614,17 @@
     if (!opts.rows) opts.rows = sectionDataRows(main, o.dataStartRow - 1);
     var machine = addDemandColumns(main, demandOptions(opts, 'machine'));
     var labor = addDemandColumns(main, demandOptions(opts, 'labor', machine.startCol + o.monthCols.length + 1));
+    // 外觀：每一塊的表頭（大表頭 + 月份）一框、每一段一框，字一律黑色，只顯示整數
+    var headerEnd = o.dataStartRow - 1;
+    var sections = findSections(main, { headerEnd: headerEnd, keyCol: 1 });
+    var font = sheetFont(main, headerEnd);
+    var n = o.monthCols.length;
+    [machine, labor].forEach(function (p) {
+      styleBlock(main, {
+        headerEnd: headerEnd, left: p.startCol, right: p.startCol + n - 1,
+        sections: sections, font: font, numFmt: INTEGER_FORMAT
+      });
+    });
     return { machine: machine, labor: labor, rows: opts.rows };
   }
 
@@ -1724,9 +1917,7 @@
         if (c < leftCol || c > rightCol) return;
         cell.value = null; cell.style = {};
       });
-      var sample = main.findCell(s.firstRow, o.monthCols[0]);
-      var font = sample && sample.style && sample.style.font ? Object.assign({}, sample.style.font) : undefined;
-      if (font) delete font.bold;
+      var font = sheetFont(main, o.headerEnd);
       var style = function (c, extra) {
         var st = Object.assign({
           fill: TOTAL_FILL,
@@ -2844,16 +3035,59 @@
 
   function sameSheetName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
 
+  /*
+   * 匯出前的修正：關掉 Excel 的「公式不一致」綠色小三角。
+   * 每一列的公式參照不同的列（例如 ='P003'!C2/'P003'!B2、='P003'!C5/'P003'!B5），Excel 會以為公式打錯而標綠色三角。
+   * 做法：在每張工作表的 XML 加上 <ignoredErrors>（忽略公式不一致、數字存成文字等提示；#DIV/0! 這類錯誤照樣顯示）。
+   * 任何一步不順利就原封不動匯出。
+   */
+  var IGNORED_ERRORS = '<ignoredErrors><ignoredError sqref="A1:XFD1048576" formula="1" formulaRange="1" ' +
+    'numberStoredAsText="1" unlockedFormula="1"/></ignoredErrors>';
+  // <ignoredErrors> 在工作表 XML 裡要放在這些元素之前（Excel 檢查元素順序）
+  var IGNORED_BEFORE = ['<smartTags', '<drawing', '<legacyDrawing', '<legacyDrawingHF', '<drawingHF', '<picture',
+    '<oleObjects', '<controls', '<webPublishItems', '<tableParts', '<extLst', '</worksheet>'];
+
+  function addIgnoredErrors(buffer) {
+    try {
+      var entries = readZip(buffer);
+      if (!entries) return buffer;
+      var changed = false;
+      entries.forEach(function (e) {
+        if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(e.name) || (e.method !== 8 && e.method !== 0)) return;
+        var bytes = e.method === 8 ? inflateRaw(e.data, e.usize) : e.data;
+        if (crc32(bytes) !== e.crc) return;
+        var text = new TextDecoder('utf-8').decode(bytes);
+        if (text.indexOf('<ignoredErrors') >= 0) return;
+        var at = -1;
+        for (var i = 0; i < IGNORED_BEFORE.length && at < 0; i++) {
+          var j = text.indexOf(IGNORED_BEFORE[i]);
+          if (j >= 0) at = j;
+        }
+        if (at < 0) return;
+        var plain = new TextEncoder().encode(text.slice(0, at) + IGNORED_ERRORS + text.slice(at));
+        e.data = plain;                                           // 改過的檔案不壓縮，直接存
+        e.method = 0;
+        e.crc = crc32(plain);
+        e.usize = plain.length;
+        changed = true;
+      });
+      return changed ? writeZip(entries) : buffer;
+    } catch (err) {
+      return buffer;
+    }
+  }
+
   function toBlob(workbook) {
     return workbook.xlsx.writeBuffer().then(function (buf) {
-      return new Blob([buf], {
+      var ab = buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      return new Blob([addIgnoredErrors(ab)], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
     });
   }
 
   var ExcelIO = {
-    VERSION: 6,           // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 9,           // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -2920,6 +3154,7 @@
     REPORT_SECOND_OFFSET: REPORT_SECOND_OFFSET,
     findReportLinks: findReportLinks,
     toNumber: toNumber,
+    addIgnoredErrors: addIgnoredErrors,
     toBlob: toBlob
   };
 

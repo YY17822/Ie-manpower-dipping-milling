@@ -11,12 +11,10 @@
   // 整個流程的步驟。還沒開發的步驟先列出來，做到時再補上對應的檔案。
   var STEPS = [
     { id: 'mps-filter', title: '篩選 MPS 報表', note: '挑出要算的料號與月份' },
-    { id: 'mps-totals', title: '匯總', note: '各月預計產量、前三大料號' },
+    { id: 'mps-totals', title: '匯總', note: 'Cutting、Dipping 各月 Total' },
     { id: 'p003-import', title: '匯入 P003 標準工時', note: '加到同一個檔案' },
-    { id: 'ct-lookup', title: '帶入標準工時 CT.', note: '用料號到 P003 查工時' },
-    { id: 'demand-hours', title: '計算需求工時', note: '各月產量 × CT.' },
-    { id: 'summary', title: '需求工時匯總', note: '每月總工時、前三大料號' },
-    { id: 'rma', title: 'RMA 需求工時', note: '重工數量 × CT.' },
+    { id: 'ct-lookup', title: '帶入標準工時 CT.', note: '機台 CT.、目檢 CT.、檢驗率' },
+    { id: 'demand-hours', title: '計算需求工時', note: '機台、目檢需求工時' },
     { id: 'manpower', title: '匯入人力報表', note: '未來六個月的人力預計' },
     { id: 'report', title: '總表', note: '各月人力需求總覽' },
     { id: 'rma-manpower', title: 'RMA人力需求', note: '重工的人力需求' }

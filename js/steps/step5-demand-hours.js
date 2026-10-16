@@ -4,10 +4,10 @@
  *
  *     機台需求工時   當月 =(WIP + 當月數量) * 機台 CT.   例如 =(D6+E6)*L6
  *                    其餘月 = 數量 * 機台 CT.             例如 =F6*L6
- *     目檢需求工時   當月 =(WIP + 當月數量) * 目檢 CT.   例如 =(D6+E6)*M6
- *                    其餘月 = 數量 * 目檢 CT.             例如 =F6*M6
+ *     目檢需求工時   當月 =(WIP + 當月數量) * 目檢 CT. * 目檢-檢驗率   例如 =(D6+E6)*M6*N6
+ *                    其餘月 = 數量 * 目檢 CT. * 目檢-檢驗率             例如 =F6*M6*N6
  *
- *   位置：「目檢 CT.」之後空一行開始放機台需求工時（六個月），再空一行放目檢需求工時（六個月）。
+ *   位置：「目檢-檢驗率」之後空一行開始放機台需求工時（六個月），再空一行放目檢需求工時（六個月）。
  *   只算 Cutting、Dipping 兩段的料號列（標題、空白列、第 2 步的 Total 列都跳過）。每格都是公式。
  *   表頭：第 2 列是跨所有月份置中的「機台需求工時」／「目檢需求工時」，第 3 列到表頭最後一列是各月的月份。
  *        月份由使用者自己輸入，兩塊用同一組月份。
@@ -145,14 +145,14 @@
     els.result = h('div', { class: 'sheet-area' });
     els.exportBtn = h('button', { type: 'button', class: 'btn-primary', disabled: true, text: '匯出 Excel', onclick: onExport });
     els.nextBtn = h('button', {
-      type: 'button', class: 'btn-secondary', disabled: true, text: '下一步：需求工時匯總',
-      onclick: function () { IEApp.go('summary'); }
+      type: 'button', class: 'btn-secondary', disabled: true, text: '下一步：匯入人力報表',
+      onclick: function () { IEApp.go('manpower'); }
     });
     els.exportNote = h('span', { class: 'export-note', 'aria-live': 'polite' });
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '計算需求工時' }),
-      h('p', { text: '把每個料號各月的計畫產量分別乘上機台 CT.、目檢 CT.，算出「機台需求工時」和「目檢需求工時」兩塊；當月會先加上 WIP 再乘。目檢 CT. 之後空一行放機台需求工時，再空一行放目檢需求工時。只算 Cutting、Dipping 的料號列，每格都是公式。' })));
+      h('p', { text: '把每個料號各月的計畫產量乘上機台 CT. 算出「機台需求工時」；乘上目檢 CT. 再乘目檢-檢驗率算出「目檢需求工時」。當月會先加上 WIP 再乘。目檢-檢驗率之後空一行放機台需求工時，再空一行放目檢需求工時。只算 Cutting、Dipping 的料號列，每格都是公式。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -166,7 +166,7 @@
           h('label', { for: 'f4-wip', text: '當月 WIP 在' }), els.wipCol,
           h('label', { for: 'f4-months', text: '各月產量在' }), els.monthCols,
           h('span', { class: 'field-label', text: 'CT. 在' }), els.ctInfo),
-        h('p', { class: 'hint', text: '各月產量的第一行是當月，會先加上 WIP 再乘 CT.；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 2 步（匯總）共用。CT. 會自動找表頭是「機台 CT.」「目檢 CT.」的兩行。' }),
+        h('p', { class: 'hint', text: '各月產量的第一行是當月，會先加上 WIP 再乘 CT.；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 2 步（匯總）共用。CT. 和檢驗率會自動找表頭是「機台 CT.」「目檢 CT.」「目檢-檢驗率」的三行。' }),
         els.mainPreview,
         h('details', { class: 'advanced' },
           h('summary', { text: '報表版面不一樣時' }),
@@ -309,9 +309,11 @@
     // 機台 CT.、目檢 CT. 在哪一行：找表頭
     var machineCtCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADERS.machine);
     var laborCtCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADERS.labor);
+    var laborRateCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADERS.rate);
     els.ctInfo.textContent = '機台 CT. ' + (machineCtCol ? XIO.numToCol(machineCtCol) + ' 行' : '找不到') +
-      '、目檢 CT. ' + (laborCtCol ? XIO.numToCol(laborCtCol) + ' 行' : '找不到');
-    var ctCol = machineCtCol && laborCtCol ? Math.min(machineCtCol, laborCtCol) : 0;
+      '、目檢 CT. ' + (laborCtCol ? XIO.numToCol(laborCtCol) + ' 行' : '找不到') +
+      '、目檢-檢驗率 ' + (laborRateCol ? XIO.numToCol(laborRateCol) + ' 行' : '找不到');
+    var ctCol = machineCtCol && laborCtCol && laborRateCol ? Math.min(machineCtCol, laborCtCol, laborRateCol) : 0;
 
     // WIP、月份：先用記住的，沒有就用預設的位置（第 4 行、第 5 到 10 行）
     var limit = ctCol ? ctCol - 1 : cols;        // 數量都在 CT. 左邊
@@ -337,7 +339,8 @@
     renderHeaderInputs(monthCols);
 
     if (!ctCol) {
-      var lack = [machineCtCol ? '' : '「機台 CT.」', laborCtCol ? '' : '「目檢 CT.」'].filter(Boolean).join('、');
+      var lack = [machineCtCol ? '' : '「機台 CT.」', laborCtCol ? '' : '「目檢 CT.」', laborRateCol ? '' : '「目檢-檢驗率」']
+        .filter(Boolean).join('、');
       setSummary('MPS 工作表裡找不到表頭是' + lack + '的行。請先做第 4 步帶入 CT.。', true);
       return;
     }
@@ -347,7 +350,7 @@
     }
     if (!wipCol) { setSummary('選擇當月 WIP 在哪一行。'); return; }
     if (!monthCols.length) { setSummary('輸入各月產量在哪幾行。'); return; }
-    var clash = monthCols.filter(function (mc) { return mc === wipCol || mc === machineCtCol || mc === laborCtCol || mc > cols; });
+    var clash = monthCols.filter(function (mc) { return mc === wipCol || mc === machineCtCol || mc === laborCtCol || mc === laborRateCol || mc > cols; });
     if (clash.length) {
       setSummary(XIO.formatColumns(clash) + ' 行不能當作各月產量（和 WIP 或 CT. 重複，或超出報表範圍）。', true);
       return;
@@ -368,7 +371,7 @@
     }
     var opts = {
       dataStartRow: sr, keyCol: keyCol, wipCol: wipCol, monthCols: monthCols,
-      machineCtCol: machineCtCol, laborCtCol: laborCtCol, headers: headers, rows: rows
+      machineCtCol: machineCtCol, laborCtCol: laborCtCol, laborRateCol: laborRateCol, headers: headers, rows: rows
     };
     var plans = XIO.planDemandBlocks(work.main, opts);
     var plan = plans.machine;
@@ -382,7 +385,7 @@
     var overwrite = !plans.machine.isNew || !plans.labor.isNew;
     setSummary('機台需求工時會填在 ' + work.main.name + ' 工作表的 ' + span(plans.machine) +
       '、目檢需求工時在 ' + span(plans.labor) +
-      (overwrite ? '（原本就有，會直接覆蓋）' : '（目檢 CT. 之後空一行，兩塊中間再空一行）') +
+      (overwrite ? '（原本就有，會直接覆蓋）' : '（目檢-檢驗率之後空一行，兩塊中間再空一行）') +
       '，共 ' + plan.rows.length.toLocaleString('en-US') + ' 個料號、' + n + ' 個月。',
       false, plans.machine.noCt > 0 || plans.labor.noCt > 0 || plans.machine.errors > 0 || plans.labor.errors > 0);
 
@@ -491,8 +494,14 @@
     var bad = Object.keys(badKeys).map(function (k) { return badKeys[k]; });
     if (bad.length) {
       els.notes.appendChild(h('li', { class: 'is-warn' },
-        '有 ' + bad.length + ' 列算不出來（CT. 是錯誤值，例如 Base Qty 是 0，或數量不是數字）：' + listText(bad, 8) +
+        '有 ' + bad.length + ' 列算不出來（CT. 或檢驗率是錯誤值，例如 Base Qty 是 0，或數量不是數字）：' + listText(bad, 8) +
         '。Excel 裡這些格會顯示 #DIV/0! 或 #VALUE!。'));
+    }
+    var noRate = plans.labor.rows.filter(function (it) { return it.noRate; }).map(function (it) { return it.label; });
+    if (noRate.length) {
+      els.notes.appendChild(h('li', { class: 'is-warn' },
+        '有 ' + noRate.length + ' 個料號的目檢-檢驗率是空白：' + listText(noRate, 8) +
+        '。目檢需求工時會算成 0。請回到第 4 步輸入檢驗率。'));
     }
     if (monthCols.length !== MONTH_COUNT) {
       els.notes.appendChild(h('li', { class: 'is-warn' },
@@ -504,6 +513,11 @@
     if (v && typeof v === 'object') return v.error;
     if (typeof v !== 'number') return v === null || v === undefined ? '' : String(v);
     return Math.round(v).toLocaleString('en-US');          // 和 Excel 一樣只顯示整數
+  }
+
+  function rateText(it) {
+    if (it.noRate) return '空白';
+    return typeof it.rate === 'number' ? Math.round(it.rate * 10000) / 100 + '%' : String(it.rate);
   }
 
   function ctText(it) {
@@ -518,10 +532,12 @@
     [['machine', '機台 CT.'], ['labor', '目檢 CT.']].forEach(function (k) {
       var plan = plans[k[0]];
       var title = TITLES[k[0]];
+      var withRate = k[0] === 'labor';
       var top = h('tr', null,
         h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: 'MPS 列' }),
         h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: '料號' }),
         h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: k[1] }),
+        withRate ? h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: '目檢-檢驗率' }) : null,
         h('th', { class: 'colhead', scope: 'colgroup', colspan: String(n), text: title }));
       var sub = h('tr');
       plan.headers.forEach(function (text, i) {
@@ -532,7 +548,8 @@
         var tr = h('tr', { class: it.noCt ? 'is-missing' : null },
           h('th', { class: 'rowhead', scope: 'row', text: String(it.row) }),
           h('td', { text: it.label }),
-          h('td', { class: 'is-num', text: ctText(it) }));
+          h('td', { class: 'is-num', text: ctText(it) }),
+          withRate ? h('td', { class: 'is-num', text: rateText(it) }) : null);
         it.values.forEach(function (v) { tr.appendChild(h('td', { class: 'is-num is-kept', text: showNumber(v) })); });
         body.appendChild(tr);
       });

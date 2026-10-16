@@ -1,5 +1,5 @@
 /*
- * 第 9 步：總表
+ * 第 7 步：總表
  *   在活頁簿裡新增「總表」工作表。目前先建立表格的樣式、格式、外框格線和位置，
  *   各格的內容（公式）之後再一項一項補上。
  *
@@ -34,10 +34,10 @@
  *   算出來的列：
  *     需求人力 On line   =D5/(D8+D9)/(D10+D11)/D12/D14+D6/(D8+D9)/(D10+D11)/D13/D14+D7/D8/D10/D13/D14
  *     需求人力 小計      =D15+D16（On line + Off line_直接，不含 Off line_間接，備註有寫）
- *   從「人力」工作表抓的列（第 8 步確認的列和當月那一行，例如 ='人力'!D4）：
+ *   從「人力」工作表抓的列（第 6 步確認的列和當月那一行，例如 ='人力'!D4）：
  *     現有人力 On line、Off line_直接、Off line_間接
  *     現有人力 小計(on+off)  =D19+D20（不含 Off line_間接，備註有寫）
- *   上傳第 8 步的檔案時，用第 8 步上次確認、記在瀏覽器裡的位置。
+ *   上傳第 6 步的檔案時，用第 6 步上次確認、記在瀏覽器裡的位置。
  *   最後兩列：
  *     人力需求差異(現有-需求)   =D22-D18
  *     Loading Rate%(含加班)     =D22/D18（顯示成 %）
@@ -47,8 +47,8 @@
  *   其他輸入和抓來的數值都參照第一張表（例如 D34 =D8），需求人力、差異、Loading Rate 用第二張表自己的數字算。
  *
  *   來源有兩種：
- *     a. 剛才第 8 步做好的結果（不用先匯出，直接沿用）
- *     b. 上傳之前第 8 步匯出的檔案
+ *     a. 剛才第 6 步做好的結果（不用先匯出，直接沿用）
+ *     b. 上傳之前第 6 步匯出的檔案
  *
  * 做完之後把結果放在 IEApp.state.withReport。
  */
@@ -75,7 +75,7 @@
   ];
 
   var S = {
-    upload: null,         // 上傳的第 8 步檔案 { name, buffer, sheets }
+    upload: null,         // 上傳的第 6 步檔案 { name, buffer, sheets }
     preferUpload: false,
     work: null,           // 拿來預覽的活頁簿 { src, loading, error, wb, main }
     inputs: null          // 輸入框裡的文字 { weekdays: [6], workMinutes: [6], effTop3: [6], effNonTop3: [6], attendance: [6], otHours, otRate }
@@ -216,7 +216,7 @@
     return refs;
   }
 
-  // 現有人力：從「人力」工作表抓第 8 步確認過的那幾列
+  // 現有人力：從「人力」工作表抓第 6 步確認過的那幾列
   var MP_SHEET = '人力';
   var MP_STORE_KEY = IEApp.storeKey('manpower');
   var MP_LINKS = [
@@ -225,7 +225,7 @@
     { key: 'haveOffIndirect', item: 'offIndirect', label: 'Off line（間接）' }
   ];
 
-  // 第 8 步確認的位置：剛做完第 8 步就用它的；上傳的檔案用第 8 步記在瀏覽器裡的位置
+  // 第 6 步確認的位置：剛做完第 6 步就用它的；上傳的檔案用第 6 步記在瀏覽器裡的位置
   function manpowerPositions(src) {
     if (src.kind === 'prev' && src.prev.rows && src.prev.firstMonthCol) {
       return { rows: src.prev.rows, firstCol: src.prev.firstMonthCol, from: 'chain' };
@@ -245,8 +245,8 @@
     MP_LINKS.forEach(function (link) {
       var info = { found: false, label: link.label, sheet: MP_SHEET, refs: [], from: pos && pos.from };
       var r = pos ? parseInt(pos.rows[link.item], 10) : 0;
-      if (!ws) info.reason = '檔案裡沒有「' + MP_SHEET + '」工作表（第 8 步）';
-      else if (!pos || !r) info.reason = '不知道「' + link.label + '」在人力工作表的哪一列，請重做第 8 步';
+      if (!ws) info.reason = '檔案裡沒有「' + MP_SHEET + '」工作表（第 6 步）';
+      else if (!pos || !r) info.reason = '不知道「' + link.label + '」在人力工作表的哪一列，請重做第 6 步';
       else {
         info.found = true;
         info.row = r;
@@ -276,13 +276,13 @@
     els.srcInfo = h('p', { class: 'source-line', 'aria-live': 'polite' });
     els.drop = ui.fileDrop({
       id: 'f9-base',
-      title: '上傳第 8 步匯出的 Excel',
+      title: '上傳第 6 步匯出的 Excel',
       sub: '或把檔案拖進這裡。支援 .xlsx',
       onFile: openUpload
     });
     els.switchBtn = h('button', { type: 'button', class: 'btn-link', hidden: true, onclick: switchSource });
     els.backBtn = h('button', {
-      type: 'button', class: 'btn-link', hidden: true, text: '回到第 8 步匯入人力報表',
+      type: 'button', class: 'btn-link', hidden: true, text: '回到第 6 步匯入人力報表',
       onclick: function () { IEApp.go('manpower'); }
     });
     els.srcMsg = h('p', { class: 'msg is-error', role: 'alert', hidden: true });
@@ -309,7 +309,7 @@
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
-        h('h2', { text: '第 8 步的 Excel' }),
+        h('h2', { text: '第 6 步的 Excel' }),
         els.srcInfo, els.drop.el,
         h('div', { class: 'link-row' }, els.switchBtn, els.backBtn),
         els.srcMsg),
@@ -395,7 +395,7 @@
       .then(function (res) {
         var names = res.workbook.worksheets.map(function (w) { return w.name; });
         if (!names.some(function (n) { return !isExtra(n); })) {
-          throw new Error('這個檔案沒有 MPS 工作表。請上傳第 8 步匯出的檔案。');
+          throw new Error('這個檔案沒有 MPS 工作表。請上傳第 6 步匯出的檔案。');
         }
         S.upload = { name: file.name, buffer: res.buffer, sheets: names };
         S.preferUpload = true;
@@ -453,10 +453,10 @@
     els.preview.textContent = '';
 
     if (!src) {
-      els.srcInfo.textContent = '還沒有第 8 步的結果。回到第 8 步，或上傳之前匯出的檔案。';
+      els.srcInfo.textContent = '還沒有第 6 步的結果。回到第 6 步，或上傳之前匯出的檔案。';
       els.drop.setIdle();
     } else if (src.kind === 'prev') {
-      els.srcInfo.textContent = '沿用第 8 步剛做好的結果：' + prev.outName + '。不用先匯出；要改用之前匯出的檔案，再從下面上傳。';
+      els.srcInfo.textContent = '沿用第 6 步剛做好的結果：' + prev.outName + '。不用先匯出；要改用之前匯出的檔案，再從下面上傳。';
       if (S.upload) els.drop.setFile(S.upload.name, '已上傳，目前沒有使用。點這裡換一個檔案');
       else els.drop.setIdle();
     } else {
@@ -465,9 +465,9 @@
     }
     els.backBtn.hidden = !!src;
     els.switchBtn.hidden = !(S.upload && prev);
-    if (src) els.switchBtn.textContent = src.kind === 'file' ? '改用第 8 步剛做好的結果' : '改用上傳的檔案';
+    if (src) els.switchBtn.textContent = src.kind === 'file' ? '改用第 6 步剛做好的結果' : '改用上傳的檔案';
 
-    if (!src) { setSummary('先準備好第 8 步的 Excel。'); return; }
+    if (!src) { setSummary('先準備好第 6 步的 Excel。'); return; }
     ensureWork(src);
     if (S.work.loading) { setSummary('準備資料中…'); return; }
     if (S.work.error) { setSummary(S.work.error, true); return; }
@@ -552,7 +552,7 @@
       } else if (isMp) {
         src = info.sheet + ' 工作表「' + link.label + '」第 ' + info.row + ' 列，' +
           XIO.numToCol(info.refs[0].col) + ' 到 ' + XIO.numToCol(info.refs[info.refs.length - 1].col) + ' 行' +
-          (info.from === 'saved' ? '（第 8 步上次確認的位置）' : '');
+          (info.from === 'saved' ? '（第 6 步上次確認的位置）' : '');
         var blank = info.refs.filter(function (x) { return x.value === null; }).length;
         if (blank) {
           warn = true;

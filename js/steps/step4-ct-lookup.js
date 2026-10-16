@@ -5,6 +5,8 @@
  *     目檢 CT.   P003 的 Labor ÷ Base Qty
  *   （P003 的 Machine、Labor 是做 Base Qty 個的工時，除過之後才是單件工時）
  *   兩行並排，放在 MPS 工作表「原本最後一行之後空一行」的位置（機台 CT. 在左、目檢 CT. 在右）。
+ *   目檢 CT. 右邊再加一行「目檢-檢驗率」：使用者在畫面上輸入 Cutting、Dipping 各一個 %，
+ *   填到該段的每一個料號列（數值，例如 0.9 顯示成 90.0%）。第 5 步的目檢需求工時會再乘上它。
  *
  *   只填 Cutting、Dipping 兩段的料號列（第 1 步的標題、中間的空白列、第 2 步的 Total 列都跳過）。
  *   填入的是公式（例如 ='P003'!N5/'P003'!K5），之後在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。
@@ -36,7 +38,19 @@
   var LABOR_HINTS = [/^labor$/i, /labor(?!\s*\/\s*pcs)/i, /labor/i];
   var BASE_HINTS = [/base\s*qty|base\s*quantity|基準|基本數量/i];
 
-  var DEFAULTS = { keyCol: '', refKeyCol: '', refMachineCol: '', refLaborCol: '', refBaseCol: '', startRow: '' };
+  var DEFAULTS = { keyCol: '', refKeyCol: '', refMachineCol: '', refLaborCol: '', refBaseCol: '', startRow: '', cutRate: '', dipRate: '' };
+  var RATES = [
+    { key: 'cutting', label: 'Cutting', setting: 'cutRate' },
+    { key: 'dipping', label: 'Dipping', setting: 'dipRate' }
+  ];
+
+  // 檢驗率：輸入 90 或 90% 都代表 90%，回傳 0.9；空白回傳 null；看不懂回傳 NaN
+  function parseRate(text) {
+    var t = XIO.normalizeText(text || '').replace(/[%％]\s*$/, '').replace(/,/g, '').trim();
+    if (t === '') return null;
+    var n = Number(t);
+    return isNaN(n) || n < 0 ? NaN : n / 100;
+  }
 
   // 這一步的狀態（切到別的步驟再回來時還在）
   var S = {
@@ -133,6 +147,24 @@
     els.refBaseCol = h('select', { id: 'f3-refbase', class: 'in-select' });
     els.refPreview = h('div', { class: 'sheet-area' });
 
+    els.rateInputs = {};
+    var rateRows = RATES.map(function (rt) {
+      var input = h('input', {
+        id: 'f3-rate-' + rt.key, type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off',
+        value: settings[rt.setting], placeholder: '例如 100'
+      });
+      els.rateInputs[rt.key] = input;
+      input.addEventListener('input', function () {
+        settings[rt.setting] = input.value;
+        saveSettings();
+        els.exportNote.textContent = '';
+        clearTimeout(els.rateTimer);
+        els.rateTimer = setTimeout(refresh, 250);
+      });
+      return h('div', { class: 'field-row' },
+        h('label', { for: 'f3-rate-' + rt.key, class: 'label-fixed', text: rt.label + ' 的目檢-檢驗率' }), input, h('span', { text: '%' }));
+    });
+
     els.summary = h('p', { class: 'summary', 'aria-live': 'polite' });
     els.notes = h('ul', { class: 'notes' });
     els.result = h('div', { class: 'sheet-area' });
@@ -145,7 +177,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '帶入標準工時 CT.' }),
-      h('p', { text: '拿 MPS 的料號到 P003 找同一個料號，用那一列算出「機台 CT.」（Machine ÷ Base Qty）和「目檢 CT.」（Labor ÷ Base Qty），兩行並排放在 MPS 最後一行之後空一行的位置。只填 Cutting、Dipping 的料號列。填入的是公式，在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。' })));
+      h('p', { text: '拿 MPS 的料號到 P003 找同一個料號，用那一列算出「機台 CT.」（Machine ÷ Base Qty）和「目檢 CT.」（Labor ÷ Base Qty），兩行並排放在 MPS 最後一行之後空一行的位置，右邊再加一行你輸入的「目檢-檢驗率」。只填 Cutting、Dipping 的料號列。CT. 填入的是公式，在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -171,6 +203,10 @@
           h('label', { for: 'f3-refbase', text: 'Base Qty 在' }), els.refBaseCol),
         h('p', { class: 'hint', text: '機台 CT. = Machine ÷ Base Qty，目檢 CT. = Labor ÷ Base Qty。P003 的 Machine、Labor 是做 Base Qty 個的工時，除過之後才是單件工時。' }),
         els.refPreview),
+      h('li', { class: 'task' },
+        h('h2', { text: '目檢-檢驗率' }),
+        rateRows,
+        h('p', { class: 'hint', text: '輸入 90 或 90% 都代表 90%。Cutting 的檢驗率填到 Cutting 每一個料號，Dipping 的填到 Dipping 每一個料號，放在目檢 CT. 右邊一行。第 5 步的目檢需求工時會再乘上這個 %。會記住上次輸入的值。' })),
       h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
         els.summary, els.notes, els.result,
@@ -379,9 +415,22 @@
       S.indexFor = work;
       S.indexKey = refKeyCol;
     }
+    var rates = {};
+    var rateProblems = [];
+    RATES.forEach(function (rt) {
+      var v = parseRate(settings[rt.setting]);
+      if (v === null) rateProblems.push('輸入 ' + rt.label + ' 的目檢-檢驗率。');
+      else if (isNaN(v)) rateProblems.push(rt.label + ' 的目檢-檢驗率「' + settings[rt.setting] + '」看不懂，請輸入數字，例如 90。');
+      else rates[rt.key] = v;
+    });
+    if (rateProblems.length) {
+      setSummary(rateProblems.join(''), rateProblems.some(function (t) { return /看不懂/.test(t); }));
+      return;
+    }
+
     var opts = {
       dataStartRow: sr, keyCol: keyCol, refKeyCol: refKeyCol,
-      refMachineCol: refMachineCol, refLaborCol: refLaborCol, refBaseCol: refBaseCol
+      refMachineCol: refMachineCol, refLaborCol: refLaborCol, refBaseCol: refBaseCol, rates: rates
     };
     var plans = XIO.planCtColumns(work.main, work.ref, Object.assign({ index: S.index, rows: rows }, opts));
     var plan = plans.machine;      // 料號、找到／找不到兩行都一樣，用機台 CT. 那一份統計
@@ -398,8 +447,11 @@
     }
 
     var mL = XIO.numToCol(plans.machine.targetCol), lL = XIO.numToCol(plans.labor.targetCol);
-    var overwrite = !plans.machine.isNew || !plans.labor.isNew;
-    setSummary('機台 CT. 會填在 ' + work.main.name + ' 工作表的 ' + mL + ' 行、目檢 CT. 在 ' + lL + ' 行' +
+    var rL = XIO.numToCol(plans.rate.targetCol);
+    var pct = function (v) { return Math.round(v * 10000) / 100 + '%'; };
+    var overwrite = !plans.machine.isNew || !plans.labor.isNew || !plans.rate.isNew;
+    setSummary('機台 CT. 會填在 ' + work.main.name + ' 工作表的 ' + mL + ' 行、目檢 CT. 在 ' + lL + ' 行、目檢-檢驗率在 ' + rL +
+      ' 行（Cutting ' + pct(rates.cutting) + '、Dipping ' + pct(rates.dipping) + '）' +
       (overwrite ? '（原本就有，會直接覆蓋）' : '（原本最後一行之後空一行）') +
       '。' + plan.rows.length.toLocaleString('en-US') + ' 個料號裡找到 ' +
       plan.found.toLocaleString('en-US') + ' 個' +
@@ -418,6 +470,7 @@
       keyCol: keyCol,
       machineCtCol: plans.machine.targetCol,
       laborCtCol: plans.labor.targetCol,
+      laborRateCol: plans.rate.targetCol,
       rows: rows,
       build: function () { return buildWorkbook(src, opts); }
     };

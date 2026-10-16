@@ -9,7 +9,7 @@
  */
 importScripts('js/config.js');                  // 專案代號（PROJECT_ID）寫在這個檔案
 var CONFIG = self.APP_CONFIG;
-var VERSION = 6;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
+var VERSION = 9;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
 var CACHE = CONFIG.PROJECT_ID + '-v' + VERSION;    // 例如 ie-manpower-dipping-milling-v1
 var EXCELJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
 var SHELL = [
@@ -26,11 +26,9 @@ var SHELL = [
   'js/steps/step3-p003-import.js',
   'js/steps/step4-ct-lookup.js',
   'js/steps/step5-demand-hours.js',
-  'js/steps/step6-summary.js',
-  'js/steps/step7-rma.js',
-  'js/steps/step8-manpower.js',
-  'js/steps/step9-report.js',
-  'js/steps/step10-rma-manpower.js',
+  'js/steps/step6-manpower.js',
+  'js/steps/step7-report.js',
+  'js/steps/step8-rma-manpower.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png'

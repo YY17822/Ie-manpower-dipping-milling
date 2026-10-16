@@ -1,5 +1,5 @@
 /*
- * 第 8 步：匯入人力報表
+ * 第 6 步：匯入人力報表
  *   把人力報表（未來六個月的人力預計）放進前面做好的 Excel，
  *   成為同一個檔案裡名為「人力」的工作表（整張照抄）。
  *
@@ -14,8 +14,8 @@
  *   六個項目都選好時，各項目的列會記在這台電腦的瀏覽器裡，下個月列的文字對不上時拿來當預設值。
  *
  *   來源有兩種：
- *     a. 剛才第 7 步做好的結果（不用先匯出，直接沿用）。跳過第 7 步的話沿用第 6 步的結果。
- *     b. 上傳之前第 7 步匯出的檔案
+ *     a. 剛才第 5 步做好的結果（不用先匯出，直接沿用）
+ *     b. 上傳之前第 5 步匯出的檔案
  *
  * 做完之後把結果放在 IEApp.state.withManpower，下一步直接拿來用：
  *   rows           { online: 5, onlineProd: 6, … } 各項目在「人力」工作表的第幾列
@@ -40,7 +40,7 @@
   var ITEMS = XIO.MANPOWER_ITEMS;
 
   var S = {
-    base: null,           // 上傳的第 7 步檔案 { name, buffer, sheets, hasManpower }
+    base: null,           // 上傳的第 5 步檔案 { name, buffer, sheets, hasManpower }
     preferUpload: false,
     mp: null,             // 人力報表 { name, workbook, ws, ext, rows: [{ row, text, key }] }
     pick: null            // 使用者確認的位置 { rows: { online: 5, … }, firstCol: 5 }（還沒選的是 0）
@@ -51,7 +51,7 @@
   function loadSettings() {
     var s = {};
     try { s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { s = {}; }
-    // lastFirstCol：上次確認的當月行，只給第 9 步（上傳第 8 步檔案時）用，這一步不拿來當預設值
+    // lastFirstCol：上次確認的當月行，只給第 7 步（上傳第 6 步檔案時）用，這一步不拿來當預設值
     return { rows: s.rows && typeof s.rows === 'object' ? s.rows : {}, lastFirstCol: parseInt(s.lastFirstCol, 10) || 0 };
   }
   function saveSettings() {
@@ -66,12 +66,12 @@
   function sameName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
   function isExtra(name) { return sameName(name, REF_SHEET) || sameName(name, SHEET_NAME); }
 
-  // 前面步驟的結果：做過第 7 步（RMA）就用第 7 步的，沒有就用第 6 步的
+  // 前面步驟的結果：第 5 步（計算需求工時）
   function previous() {
-    return IEApp.state.withRma || IEApp.state.withSummary || null;
+    return IEApp.state.withDemand || null;
   }
   function previousLabel() {
-    return IEApp.state.withRma ? '第 7 步剛做好的結果' : '第 6 步剛做好的結果（沒有做第 7 步 RMA）';
+    return '第 5 步剛做好的結果';
   }
 
   function activeSource() {
@@ -88,14 +88,14 @@
     els.baseInfo = h('p', { class: 'source-line', 'aria-live': 'polite' });
     els.baseDrop = ui.fileDrop({
       id: 'f8-base',
-      title: '上傳第 7 步匯出的 Excel',
+      title: '上傳第 5 步匯出的 Excel',
       sub: '或把檔案拖進這裡。支援 .xlsx',
       onFile: openBase
     });
     els.baseSwitch = h('button', { type: 'button', class: 'btn-link', hidden: true, onclick: switchSource });
     els.backBtn = h('button', {
-      type: 'button', class: 'btn-link', hidden: true, text: '回到第 7 步 RMA 需求工時',
-      onclick: function () { IEApp.go('rma'); }
+      type: 'button', class: 'btn-link', hidden: true, text: '回到第 5 步計算需求工時',
+      onclick: function () { IEApp.go('demand-hours'); }
     });
     els.baseMsg = h('p', { class: 'msg is-error', role: 'alert', hidden: true });
 
@@ -142,7 +142,7 @@
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
-        h('h2', { text: '第 7 步的 Excel' }),
+        h('h2', { text: '第 5 步的 Excel' }),
         els.baseInfo, els.baseDrop.el,
         h('div', { class: 'link-row' }, els.baseSwitch, els.backBtn),
         els.baseMsg),
@@ -167,7 +167,7 @@
     refresh();
   }
 
-  /* ---------- 第 7 步的 Excel ---------- */
+  /* ---------- 第 5 步的 Excel ---------- */
   function openBase(file) {
     els.baseMsg.hidden = true;
     els.baseDrop.setBusy(file.name);
@@ -175,7 +175,7 @@
       .then(function (res) {
         var names = res.workbook.worksheets.map(function (ws) { return ws.name; });
         var others = names.filter(function (n) { return !isExtra(n); });
-        if (!others.length) throw new Error('這個檔案沒有 MPS 工作表，看起來不是第 7 步匯出的檔案。請上傳第 7 步匯出的 Excel。');
+        if (!others.length) throw new Error('這個檔案沒有 MPS 工作表，看起來不是第 5 步匯出的檔案。請上傳第 5 步匯出的 Excel。');
         S.base = {
           name: file.name, buffer: res.buffer, sheets: names,
           hasManpower: names.some(function (n) { return sameName(n, SHEET_NAME); })
@@ -330,9 +330,9 @@
     els.preview.textContent = '';
     els.check.textContent = '';
 
-    // 第 7 步的 Excel
+    // 第 5 步的 Excel
     if (!src) {
-      els.baseInfo.textContent = '還沒有第 7 步的結果。回到第 7 步，或上傳之前匯出的檔案。';
+      els.baseInfo.textContent = '還沒有第 5 步的結果。回到第 5 步，或上傳之前匯出的檔案。';
       els.baseDrop.setIdle();
     } else if (src.kind === 'prev') {
       els.baseInfo.textContent = '沿用' + previousLabel() + '：' + prev.outName + '。不用先匯出；要改用之前匯出的檔案，再從下面上傳。';
@@ -398,7 +398,7 @@
     }
 
     // 匯出
-    if (!src) { setSummary('先準備好第 7 步的 Excel。'); return; }
+    if (!src) { setSummary('先準備好第 5 步的 Excel。'); return; }
     if (!mp || !mp.ws) { setSummary('上傳人力報表。'); return; }
     if (!hasSheet) { setSummary('人力報表的這個工作表沒有資料。請確認檔案，或換一個工作表。', true); return; }
     if (missing.length) { setSummary('還沒有選在哪一列：' + missing.join('、') + '。'); return; }
