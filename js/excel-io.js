@@ -1001,14 +1001,25 @@
     var ext = extent(main);
     var existing = findHeaderColumn(main, headerEnd, o.header);
     var lastCol = ext.colCount;
-    var targetCol = existing || lastCol + 2;
+    var targetCol = existing || o.newCol || lastCol + 2;   // o.newCol：新增時指定放哪一行（例如緊接在另一個 CT. 右邊）
     var index = o.index || buildIndex(ref, o.refKeyCol);
 
     var rows = [];
     var found = 0, missing = 0, blank = 0, errors = 0;
     var multiKeys = {}, diffKeys = {};
-    var lastDataRow = lastKeyRow(main, o.keyCol, o.dataStartRow);   // 下面的匯總列不算資料
-    for (var r = o.dataStartRow; r <= lastDataRow; r++) {
+    // 要查的列：有給 o.rows（例如 Cutting、Dipping 兩段的資料列）就只查那些列；
+    // 沒給就從資料開始的那一列查到最後一個料號（下面的匯總列不算資料）
+    var rowList = o.rows;
+    var lastDataRow;
+    if (rowList) {
+      lastDataRow = rowList.length ? Math.max.apply(null, rowList) : 0;
+    } else {
+      lastDataRow = lastKeyRow(main, o.keyCol, o.dataStartRow);
+      rowList = [];
+      for (var rr = o.dataStartRow; rr <= lastDataRow; rr++) rowList.push(rr);
+    }
+    for (var ri = 0; ri < rowList.length; ri++) {
+      var r = rowList[ri];
       var row = main.findRow(r);
       var cell = row ? row.findCell(o.keyCol) : null;
       var key = lookupKey(cellRawValue(cell));
@@ -1117,19 +1128,77 @@
     // 重做時，把這一行裡不再對得到的舊內容清掉
     if (!plan.isNew) {
       eachStoredRow(main, function (row, r) {
-        if (r < o.dataStartRow || r > plan.lastDataRow || done[r]) return;
+        if (r < o.dataStartRow || done[r]) return;
+        if (!o.rows && r > plan.lastDataRow) return;
         var old = row.findCell(col);
-        if (old) old.value = null;
+        if (!old) return;
+        old.value = null;
+        if (o.rows && isMissingFill(old.fill)) {
+          var st = Object.assign({}, old.style);
+          delete st.fill;
+          old.style = st;
+        }
       });
     }
 
-    if (plan.isNew) main.getColumn(col).width = 11;
+    if (plan.isNew) main.getColumn(col).width = o.width || 11;
 
     // 請 Excel 開檔時重新計算一次公式
     var wb = main.workbook;
     if (wb) wb.calcProperties = Object.assign({}, wb.calcProperties, { fullCalcOnLoad: true });
 
     return plan;
+  }
+
+  /* ---------- Dipping_Milling：機台 CT.、目檢 CT. 兩行 ---------- */
+
+  var CT_HEADERS = { machine: '機台 CT.', labor: '目檢 CT.' };
+
+  // 分段 MPS 裡要查 CT. 的列：Cutting、Dipping 兩段的資料列（標題、空白、Total 列都不算）
+  function sectionDataRows(main, headerEnd) {
+    var rows = [];
+    findSections(main, { headerEnd: headerEnd, keyCol: 1 }).forEach(function (s) {
+      for (var r = s.firstRow; r <= s.lastRow; r++) rows.push(r);
+    });
+    return rows;
+  }
+
+  /*
+   * 先算出兩行 CT. 的查表結果，不動工作表。
+   *   機台 CT. = P003 的 Machine ÷ Base Qty（o.refMachineCol ÷ o.refBaseCol）
+   *   目檢 CT. = P003 的 Labor ÷ Base Qty（o.refLaborCol ÷ o.refBaseCol）
+   * 兩行並排：機台 CT. 放在原本最後一行之後空一行，目檢 CT. 緊接在右邊；已經有同名表頭就覆蓋那一行。
+   *
+   * o: { dataStartRow, keyCol, refKeyCol, refMachineCol, refLaborCol, refBaseCol,
+   *      rows（可省略，預設是兩段的資料列）, index }
+   * 回傳 { machine: planLookup 的結果, labor: planLookup 的結果, rows }
+   */
+  function ctOptions(o, which, newCol) {
+    return {
+      dataStartRow: o.dataStartRow, keyCol: o.keyCol, refKeyCol: o.refKeyCol,
+      refValueCol: which === 'machine' ? o.refMachineCol : o.refLaborCol,
+      refDivCol: o.refBaseCol,
+      header: CT_HEADERS[which], rows: o.rows, index: o.index, newCol: newCol, width: 11
+    };
+  }
+  function planCtColumns(main, ref, o) {
+    var opts = Object.assign({}, o);
+    if (!opts.rows) opts.rows = sectionDataRows(main, o.dataStartRow - 1);
+    if (!opts.index) opts.index = buildIndex(ref, o.refKeyCol);
+    var machine = planLookup(main, ref, ctOptions(opts, 'machine'));
+    var labor = planLookup(main, ref, ctOptions(opts, 'labor', machine.targetCol + 1));
+    return { machine: machine, labor: labor, rows: opts.rows };
+  }
+
+  // 寫進工作表：每一列填公式，例如 ='P003'!N5/'P003'!K5（機台 CT.）、='P003'!M5/'P003'!K5（目檢 CT.）。
+  // 找不到的料號留空白、標淺紅色。
+  function addCtColumns(main, ref, o) {
+    var opts = Object.assign({}, o);
+    if (!opts.rows) opts.rows = sectionDataRows(main, o.dataStartRow - 1);
+    if (!opts.index) opts.index = buildIndex(ref, o.refKeyCol);
+    var machine = addLookupColumn(main, ref, ctOptions(opts, 'machine'));
+    var labor = addLookupColumn(main, ref, ctOptions(opts, 'labor', machine.targetCol + 1));
+    return { machine: machine, labor: labor, rows: opts.rows };
   }
 
   /* ---------- 需求工時：各月數量 × CT. ---------- */
@@ -1188,7 +1257,7 @@
     var headerEnd = o.dataStartRow - 1;
     var ext = extent(main);
     var old = findBlock(main, headerEnd, o.title);
-    var startCol = old ? old.col : ext.colCount + 2;
+    var startCol = old ? old.col : (o.startCol || ext.colCount + 2);   // o.startCol：新增時指定從哪一行開始
     var lastRow = ext.lastRow;
 
     var headers = o.monthCols.map(function (c, i) {
@@ -1198,7 +1267,14 @@
     var ctL = numToCol(o.ctCol), wipL = numToCol(o.wipCol);
     var rows = [];
     var noCt = 0, errors = 0;
-    for (var r = o.dataStartRow; r <= lastRow; r++) {
+    // 要算的列：有給 o.rows（Cutting、Dipping 兩段的資料列）就只算那些列
+    var rowList = o.rows;
+    if (!rowList) {
+      rowList = [];
+      for (var rr = o.dataStartRow; rr <= lastRow; rr++) rowList.push(rr);
+    }
+    for (var ri = 0; ri < rowList.length; ri++) {
+      var r = rowList[ri];
       var row = main.findRow(r);
       if (!row) continue;
       var keyCell = row.findCell(o.keyCol);
@@ -1320,6 +1396,43 @@
     if (wb) wb.calcProperties = Object.assign({}, wb.calcProperties, { fullCalcOnLoad: true });
 
     return plan;
+  }
+
+  /* ---------- Dipping_Milling：機台需求工時、目檢需求工時兩塊 ---------- */
+
+  var DEMAND_TITLES = { machine: '機台需求工時', labor: '目檢需求工時' };
+
+  /*
+   * 兩塊需求工時：
+   *   機台需求工時   各月數量 × 機台 CT.（當月是 (WIP + 當月數量) × 機台 CT.）
+   *   目檢需求工時   各月數量 × 目檢 CT.（當月是 (WIP + 當月數量) × 目檢 CT.）
+   * 位置：機台需求工時從「目檢 CT. 之後空一行」開始（原本最後一行之後空一行），
+   *       目檢需求工時從「機台需求工時最後一個月之後空一行」開始；已經有同名大表頭就覆蓋原本的位置。
+   * 只算 Cutting、Dipping 兩段的資料列（o.rows，沒給就自己找）。
+   *
+   * o: { dataStartRow, keyCol, wipCol, monthCols, machineCtCol, laborCtCol, headers, rows }
+   * 回傳 { machine: planDemand 的結果, labor: planDemand 的結果, rows }
+   */
+  function demandOptions(o, which, startCol) {
+    return {
+      dataStartRow: o.dataStartRow, keyCol: o.keyCol, wipCol: o.wipCol, monthCols: o.monthCols,
+      ctCol: which === 'machine' ? o.machineCtCol : o.laborCtCol,
+      title: DEMAND_TITLES[which], headers: o.headers, rows: o.rows, startCol: startCol
+    };
+  }
+  function planDemandBlocks(main, o) {
+    var opts = Object.assign({}, o);
+    if (!opts.rows) opts.rows = sectionDataRows(main, o.dataStartRow - 1);
+    var machine = planDemand(main, demandOptions(opts, 'machine'));
+    var labor = planDemand(main, demandOptions(opts, 'labor', machine.startCol + o.monthCols.length + 1));
+    return { machine: machine, labor: labor, rows: opts.rows };
+  }
+  function addDemandBlocks(main, o) {
+    var opts = Object.assign({}, o);
+    if (!opts.rows) opts.rows = sectionDataRows(main, o.dataStartRow - 1);
+    var machine = addDemandColumns(main, demandOptions(opts, 'machine'));
+    var labor = addDemandColumns(main, demandOptions(opts, 'labor', machine.startCol + o.monthCols.length + 1));
+    return { machine: machine, labor: labor, rows: opts.rows };
   }
 
   /* ---------- MPS 匯總：各月預計總產量、前三大、其他 ---------- */
@@ -2740,7 +2853,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 3,           // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 6,           // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -2767,6 +2880,13 @@
     planLookup: planLookup,
     lookupFormula: lookupFormula,
     addLookupColumn: addLookupColumn,
+    CT_HEADERS: CT_HEADERS,
+    sectionDataRows: sectionDataRows,
+    planCtColumns: planCtColumns,
+    addCtColumns: addCtColumns,
+    DEMAND_TITLES: DEMAND_TITLES,
+    planDemandBlocks: planDemandBlocks,
+    addDemandBlocks: addDemandBlocks,
     findHeaderColumn: findHeaderColumn,
     planDemand: planDemand,
     addDemandColumns: addDemandColumns,

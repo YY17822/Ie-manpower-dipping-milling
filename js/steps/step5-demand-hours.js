@@ -1,21 +1,23 @@
 /*
- * 第 5 步：計算需求工時
- *   把每個料號各月的計畫產量乘上該列的 CT.，算出六個月各自的需求工時。
- *   當月比較特別：要先加上當月 WIP 再乘 CT.。
+ * 第 5 步：計算需求工時（Dipping_Milling）
+ *   每個料號各月的計畫產量，分別乘上「機台 CT.」和「目檢 CT.」，算出兩塊需求工時：
  *
- *     當月   =(WIP + 當月數量) * CT.      例如 =(D5+E5)*L5
- *     其餘月 = 數量 * CT.                 例如 =F5*L5
+ *     機台需求工時   當月 =(WIP + 當月數量) * 機台 CT.   例如 =(D6+E6)*L6
+ *                    其餘月 = 數量 * 機台 CT.             例如 =F6*L6
+ *     目檢需求工時   當月 =(WIP + 當月數量) * 目檢 CT.   例如 =(D6+E6)*M6
+ *                    其餘月 = 數量 * 目檢 CT.             例如 =F6*M6
  *
- *   結果從 MPS 工作表「原本最後一行之後空一行」開始填，每格都是公式。
- *   表頭：第 2 列是跨所有月份置中的「需求工時」，第 3 列到表頭最後一列是各月的月份。
- *        月份由使用者自己輸入，程式不會自己去 MPS 的表頭找。
+ *   位置：「目檢 CT.」之後空一行開始放機台需求工時（六個月），再空一行放目檢需求工時（六個月）。
+ *   只算 Cutting、Dipping 兩段的料號列（標題、空白列、第 2 步的 Total 列都跳過）。每格都是公式。
+ *   表頭：第 2 列是跨所有月份置中的「機台需求工時」／「目檢需求工時」，第 3 列到表頭最後一列是各月的月份。
+ *        月份由使用者自己輸入，兩塊用同一組月份。
  *   數值只顯示整數（儲存格裡仍保留小數，加總時用的是完整的數值）。
  *
  *   預設的行（照第 1 步保留的順序）：第 4 行是 WIP，第 5 到第 10 行是當月和往後五個月。
  *
  *   來源有兩種：
  *     a. 剛才第 4 步做好的結果（不用先匯出，直接沿用）
- *     b. 上傳之前第 4 步匯出的檔案（MPS 工作表裡要有 CT. 這一行）
+ *     b. 上傳之前第 4 步匯出的檔案（MPS 工作表裡要有「機台 CT.」「目檢 CT.」這兩行）
  *
  * 做完之後把結果放在 IEApp.state.withDemand，下一步直接拿來用。
  */
@@ -30,8 +32,8 @@
   var STORE_KEY = IEApp.storeKey('step4');       // 鍵名是舊的步驟編號，改掉會讓記住的設定不見，所以沿用
   var STEP1_KEY = IEApp.storeKey('step1');
   var REF_SHEET = 'P003';
-  var CT_HEADER = 'CT.';
-  var TITLE = '需求工時';
+  var CT_HEADERS = XIO.CT_HEADERS;          // { machine: '機台 CT.', labor: '目檢 CT.' }
+  var TITLES = XIO.DEMAND_TITLES;           // { machine: '機台需求工時', labor: '目檢需求工時' }
   var SUFFIX = '_需求工時';
   var WIP_DEFAULT = 4;          // 第 4 行是當月 WIP
   var MONTH_FIRST = 5;          // 第 5 行起是月份
@@ -116,7 +118,7 @@
     els.drop = ui.fileDrop({
       id: 'f4-base',
       title: '上傳第 4 步匯出的 Excel',
-      sub: '或把檔案拖進這裡。MPS 工作表裡要有 CT. 這一行',
+      sub: '或把檔案拖進這裡。MPS 工作表裡要有機台 CT.、目檢 CT. 這兩行',
       onFile: openUpload
     });
     els.switchBtn = h('button', { type: 'button', class: 'btn-link', hidden: true, onclick: switchSource });
@@ -150,7 +152,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '計算需求工時' }),
-      h('p', { text: '把每個料號各月的計畫產量乘上 CT.，算出各月的需求工時；當月會先加上 WIP 再乘。結果填在最後一行之後空一行的位置，每格都是公式，在 Excel 點儲存格就能看到是哪幾格算出來的。' })));
+      h('p', { text: '把每個料號各月的計畫產量分別乘上機台 CT.、目檢 CT.，算出「機台需求工時」和「目檢需求工時」兩塊；當月會先加上 WIP 再乘。目檢 CT. 之後空一行放機台需求工時，再空一行放目檢需求工時。只算 Cutting、Dipping 的料號列，每格都是公式。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -164,7 +166,7 @@
           h('label', { for: 'f4-wip', text: '當月 WIP 在' }), els.wipCol,
           h('label', { for: 'f4-months', text: '各月產量在' }), els.monthCols,
           h('span', { class: 'field-label', text: 'CT. 在' }), els.ctInfo),
-        h('p', { class: 'hint', text: '各月產量的第一行是當月，會先加上 WIP 再乘 CT.；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 2 步（匯總）共用。' }),
+        h('p', { class: 'hint', text: '各月產量的第一行是當月，會先加上 WIP 再乘 CT.；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 2 步（匯總）共用。CT. 會自動找表頭是「機台 CT.」「目檢 CT.」的兩行。' }),
         els.mainPreview,
         h('details', { class: 'advanced' },
           h('summary', { text: '報表版面不一樣時' }),
@@ -172,7 +174,7 @@
             h('label', { for: 'f4-start', text: 'MPS 的資料從第' }), els.startRow, els.startNote))),
       h('li', { class: 'task' },
         h('h2', { text: '各月的表頭' }),
-        h('p', { class: 'hint', text: '輸入每個月要顯示的表頭，例如 Oct、Nov。' }),
+        h('p', { class: 'hint', text: '輸入每個月要顯示的表頭，例如 Oct、Nov。機台需求工時和目檢需求工時用同一組。' }),
         els.headers),
       h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
@@ -304,9 +306,12 @@
     var cols = Math.max(work.mainExt.colCount, 1);
     var labels = XIO.columnLabels(work.main, headerEnd >= 2 ? 2 : 1, Math.max(headerEnd, 1), cols);
 
-    // CT. 在哪一行：找表頭
-    var ctCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADER);
-    els.ctInfo.textContent = ctCol ? XIO.numToCol(ctCol) + ' 行（表頭是「CT.」的那一行）' : '找不到';
+    // 機台 CT.、目檢 CT. 在哪一行：找表頭
+    var machineCtCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADERS.machine);
+    var laborCtCol = XIO.findHeaderColumn(work.main, headerEnd, CT_HEADERS.labor);
+    els.ctInfo.textContent = '機台 CT. ' + (machineCtCol ? XIO.numToCol(machineCtCol) + ' 行' : '找不到') +
+      '、目檢 CT. ' + (laborCtCol ? XIO.numToCol(laborCtCol) + ' 行' : '找不到');
+    var ctCol = machineCtCol && laborCtCol ? Math.min(machineCtCol, laborCtCol) : 0;
 
     // WIP、月份：先用記住的，沒有就用預設的位置（第 4 行、第 5 到 10 行）
     var limit = ctCol ? ctCol - 1 : cols;        // 數量都在 CT. 左邊
@@ -332,7 +337,8 @@
     renderHeaderInputs(monthCols);
 
     if (!ctCol) {
-      setSummary('MPS 工作表裡找不到表頭是「CT.」的那一行。請先做第 4 步帶入 CT.。', true);
+      var lack = [machineCtCol ? '' : '「機台 CT.」', laborCtCol ? '' : '「目檢 CT.」'].filter(Boolean).join('、');
+      setSummary('MPS 工作表裡找不到表頭是' + lack + '的行。請先做第 4 步帶入 CT.。', true);
       return;
     }
     if (parsed.bad.length) {
@@ -341,7 +347,7 @@
     }
     if (!wipCol) { setSummary('選擇當月 WIP 在哪一行。'); return; }
     if (!monthCols.length) { setSummary('輸入各月產量在哪幾行。'); return; }
-    var clash = monthCols.filter(function (mc) { return mc === wipCol || mc === ctCol || mc > cols; });
+    var clash = monthCols.filter(function (mc) { return mc === wipCol || mc === machineCtCol || mc === laborCtCol || mc > cols; });
     if (clash.length) {
       setSummary(XIO.formatColumns(clash) + ' 行不能當作各月產量（和 WIP 或 CT. 重複，或超出報表範圍）。', true);
       return;
@@ -355,25 +361,33 @@
     }
 
     var keyCol = src.kind === 'prev' && src.prev.keyCol ? src.prev.keyCol : 1;
+    var rows = XIO.sectionDataRows(work.main, headerEnd);
+    if (!rows.length) {
+      setSummary('MPS 工作表找不到 Cutting、Dipping 的料號列（第 1 步寫的「Cutting（…）」「Dipping（…）」標題下面）。請確認上傳的是這一版第 4 步匯出的檔案。', true);
+      return;
+    }
     var opts = {
-      dataStartRow: sr, keyCol: keyCol, wipCol: wipCol, monthCols: monthCols, ctCol: ctCol,
-      title: TITLE, headers: headers
+      dataStartRow: sr, keyCol: keyCol, wipCol: wipCol, monthCols: monthCols,
+      machineCtCol: machineCtCol, laborCtCol: laborCtCol, headers: headers, rows: rows
     };
-    var plan = XIO.planDemand(work.main, opts);
+    var plans = XIO.planDemandBlocks(work.main, opts);
+    var plan = plans.machine;
     if (!plan.rows.length) {
-      setSummary('第 ' + sr + ' 列之後沒有料號。請確認上傳的檔案。', true);
+      setSummary('Cutting、Dipping 兩段裡沒有料號。請確認上傳的檔案。', true);
       return;
     }
 
-    var firstL = XIO.numToCol(plan.startCol);
-    var lastL = XIO.numToCol(plan.startCol + monthCols.length - 1);
-    setSummary('需求工時會填在 ' + work.main.name + ' 工作表的 ' + firstL + ' 到 ' + lastL + ' 行' +
-      (plan.isNew ? '（原本最後一行之後空一行）' : '（原本就有「需求工時」，會直接覆蓋）') +
-      '，共 ' + plan.rows.length.toLocaleString('en-US') + ' 個料號、' + monthCols.length + ' 個月。',
-      false, plan.noCt > 0 || plan.errors > 0);
+    var n = monthCols.length;
+    function span(p) { return XIO.numToCol(p.startCol) + ' 到 ' + XIO.numToCol(p.startCol + n - 1) + ' 行'; }
+    var overwrite = !plans.machine.isNew || !plans.labor.isNew;
+    setSummary('機台需求工時會填在 ' + work.main.name + ' 工作表的 ' + span(plans.machine) +
+      '、目檢需求工時在 ' + span(plans.labor) +
+      (overwrite ? '（原本就有，會直接覆蓋）' : '（目檢 CT. 之後空一行，兩塊中間再空一行）') +
+      '，共 ' + plan.rows.length.toLocaleString('en-US') + ' 個料號、' + n + ' 個月。',
+      false, plans.machine.noCt > 0 || plans.labor.noCt > 0 || plans.machine.errors > 0 || plans.labor.errors > 0);
 
-    renderNotes(plan, monthCols);
-    renderResult(plan, opts);
+    renderNotes(plans, monthCols);
+    renderResult(plans, opts);
     els.exportBtn.disabled = false;
 
     // 給下一步用
@@ -382,8 +396,10 @@
       mainSheet: work.main.name,
       dataStartRow: sr,
       keyCol: keyCol,
-      demandCol: plan.startCol,
-      monthCount: monthCols.length,
+      machineDemandCol: plans.machine.startCol,
+      laborDemandCol: plans.labor.startCol,
+      monthCount: n,
+      rows: rows,
       build: function () { return buildWorkbook(src, opts); }
     };
     els.nextBtn.disabled = false;
@@ -457,19 +473,25 @@
     return labels.slice(0, max).join('、') + (labels.length > max ? ' …等 ' + labels.length + ' 個' : '');
   }
 
-  function renderNotes(plan, monthCols) {
-    if (plan.noCt) {
+  function renderNotes(plans, monthCols) {
+    [['machine', '機台 CT.', '機台需求工時'], ['labor', '目檢 CT.', '目檢需求工時']].forEach(function (k) {
+      var plan = plans[k[0]];
+      if (!plan.noCt) return;
       var none = plan.rows.filter(function (it) { return it.noCt; }).map(function (it) { return it.label; });
       els.notes.appendChild(h('li', { class: 'is-warn' },
-        '有 ' + plan.noCt + ' 個料號沒有 CT.（第 4 步在 P003 找不到）：' + listText(none, 12) +
-        '。這些列一樣會填公式，但需求工時會算成 0，並標上淺紅色底。'));
-    }
-    if (plan.errors) {
-      var bad = plan.rows.filter(function (it) {
-        return it.values.some(function (v) { return v && typeof v === 'object'; });
-      }).map(function (it) { return it.label; });
+        '有 ' + plan.noCt + ' 個料號沒有' + k[1] + '（第 4 步在 P003 找不到）：' + listText(none, 12) +
+        '。這些列一樣會填公式，但' + k[2] + '會算成 0，並標上淺紅色底。'));
+    });
+    var badKeys = {};
+    [plans.machine, plans.labor].forEach(function (plan) {
+      plan.rows.forEach(function (it) {
+        if (it.values.some(function (v) { return v && typeof v === 'object'; })) badKeys[it.row] = it.label;
+      });
+    });
+    var bad = Object.keys(badKeys).map(function (k) { return badKeys[k]; });
+    if (bad.length) {
       els.notes.appendChild(h('li', { class: 'is-warn' },
-        '有 ' + plan.errors + ' 列算不出來（CT. 是錯誤值，或數量不是數字）：' + listText(bad, 8) +
+        '有 ' + bad.length + ' 列算不出來（CT. 是錯誤值，例如 Base Qty 是 0，或數量不是數字）：' + listText(bad, 8) +
         '。Excel 裡這些格會顯示 #DIV/0! 或 #VALUE!。'));
     }
     if (monthCols.length !== MONTH_COUNT) {
@@ -484,49 +506,57 @@
     return Math.round(v).toLocaleString('en-US');          // 和 Excel 一樣只顯示整數
   }
 
-  // 前幾筆的計算結果，以及第一筆每一格的公式
-  function renderResult(plan, opts) {
+  function ctText(it) {
+    return it.noCt ? '沒有' : (typeof it.ct === 'number' ? String(Math.round(it.ct * 1e6) / 1e6) : String(it.ct));
+  }
+
+  // 前幾筆的計算結果（機台、目檢兩塊各一張表），以及第一筆每一格的公式
+  function renderResult(plans, opts) {
     els.result.textContent = '';
     var SHOW = 6;
     var n = opts.monthCols.length;
-    var top = h('tr', null,
-      h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: 'MPS 列' }),
-      h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: '料號' }),
-      h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: 'CT.' }),
-      h('th', { class: 'colhead', scope: 'colgroup', colspan: String(n), text: TITLE }));
-    var sub = h('tr');
-    plan.headers.forEach(function (text, i) {
-      sub.appendChild(h('th', { class: 'colhead', scope: 'col', text: XIO.numToCol(plan.startCol + i) + '　' + text }));
-    });
-    var body = h('tbody');
-    plan.rows.slice(0, SHOW).forEach(function (it) {
-      var tr = h('tr', { class: it.noCt ? 'is-missing' : null },
-        h('th', { class: 'rowhead', scope: 'row', text: String(it.row) }),
-        h('td', { text: it.label }),
-        h('td', { class: 'is-num', text: it.noCt ? '沒有' : (typeof it.ct === 'number' ? String(Math.round(it.ct * 1e6) / 1e6) : String(it.ct)) }));
-      it.values.forEach(function (v) { tr.appendChild(h('td', { class: 'is-num is-kept', text: showNumber(v) })); });
-      body.appendChild(tr);
-    });
-    var more = plan.rows.length - SHOW;
-    els.result.appendChild(h('p', {
-      class: 'sheet-caption',
-      text: '計算結果（前 ' + Math.min(SHOW, plan.rows.length) + ' 筆）。' + (more > 0 ? '還有 ' + more.toLocaleString('en-US') + ' 筆沒顯示。' : '')
-    }));
-    els.result.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': '計算結果' },
-      h('table', { class: 'sheet is-result' }, h('thead', null, top, sub), body)));
+    [['machine', '機台 CT.'], ['labor', '目檢 CT.']].forEach(function (k) {
+      var plan = plans[k[0]];
+      var title = TITLES[k[0]];
+      var top = h('tr', null,
+        h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: 'MPS 列' }),
+        h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: '料號' }),
+        h('th', { class: 'colhead', scope: 'col', rowspan: '2', text: k[1] }),
+        h('th', { class: 'colhead', scope: 'colgroup', colspan: String(n), text: title }));
+      var sub = h('tr');
+      plan.headers.forEach(function (text, i) {
+        sub.appendChild(h('th', { class: 'colhead', scope: 'col', text: XIO.numToCol(plan.startCol + i) + '　' + text }));
+      });
+      var body = h('tbody');
+      plan.rows.slice(0, SHOW).forEach(function (it) {
+        var tr = h('tr', { class: it.noCt ? 'is-missing' : null },
+          h('th', { class: 'rowhead', scope: 'row', text: String(it.row) }),
+          h('td', { text: it.label }),
+          h('td', { class: 'is-num', text: ctText(it) }));
+        it.values.forEach(function (v) { tr.appendChild(h('td', { class: 'is-num is-kept', text: showNumber(v) })); });
+        body.appendChild(tr);
+      });
+      var more = plan.rows.length - SHOW;
+      els.result.appendChild(h('p', {
+        class: 'sheet-caption',
+        text: title + '（前 ' + Math.min(SHOW, plan.rows.length) + ' 筆）。' + (more > 0 ? '還有 ' + more.toLocaleString('en-US') + ' 筆沒顯示。' : '')
+      }));
+      els.result.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': title },
+        h('table', { class: 'sheet is-result' }, h('thead', null, top, sub), body)));
 
-    var first = plan.rows[0];
-    var formulas = first.formulas.map(function (f, i) {
-      return XIO.numToCol(plan.startCol + i) + first.row + ' =' + f;
+      var first = plan.rows[0];
+      var formulas = first.formulas.slice(0, 2).map(function (f, i) {
+        return XIO.numToCol(plan.startCol + i) + first.row + ' =' + f;
+      });
+      els.result.appendChild(h('p', { class: 'hint', text: '第 ' + first.row + ' 列的公式：' + formulas.join('　') + (n > 2 ? '　…' : '') }));
     });
-    els.result.appendChild(h('p', { class: 'hint', text: '第 ' + first.row + ' 列填入的公式：' + formulas.join('　') }));
   }
 
   /* ---------- 產生活頁簿 ---------- */
   function buildWorkbook(src, opts) {
     return buildFrom(src).then(function (wb) {
       var main = pickMain(wb, src);
-      XIO.addDemandColumns(main, opts);
+      XIO.addDemandBlocks(main, opts);
       return wb;
     });
   }
