@@ -3132,13 +3132,13 @@
     { r: 25, key: 'laborPplMilling', c: '需求人力 - Milling', fill: 'labor' },
     { r: 26, key: 'laborPplDipping', c: '需求人力 - Dipping', fill: 'labor' },
     { r: 27, key: 'laborOtDays', b: '加班天數 - 目檢', u: '天', fill: 'labor' },
-    { r: 28, key: 'laborNeed', b: '需求顧機人數 - 目檢', u: '人/天', fill: 'labor' },
+    { r: 28, key: 'laborNeed', b: '需求人數 - 目檢', u: '人/天', fill: 'labor' },
     { r: 29, key: 'needTotal', b: '總需求人力', u: '人/天', fill: 'total' },
     { r: 30, key: 'haveMilling', c: 'Milling' },
     { r: 31, key: 'haveDipping', c: 'Dipping' },
     { r: 32, key: 'haveTotal', b: '總現有人力', u: '人/天', fill: 'total', thickBottom: true },
     { r: 33, key: 'gap', b: '人力需求差異', u: '人/天' },
-    { r: 34, key: 'loading', b: 'Loading Rate (9)=(X)/(1)', u: '%', fill: 'total' }
+    { r: 34, key: 'loading', b: 'Loading Rate', u: '%', fill: 'total' }
   ];
   // B 行上下合併的群組標籤（align: 'center' 置中；'left' 靠左、垂直置中；'top' 靠左上）
   var DM_GROUPS = [
@@ -3234,6 +3234,7 @@
    * o.millingHours  dmBlockTotalFormulas() 的 cutting：Milling站 機台需求工時各月的公式
    * o.millingRatio  { machines, people } Milling站 人機比的機台數、人員數
    * o.dippingHours、o.dippingRatio   Dipping站，同上
+   * o.laborHours  dmBlockTotalFormulas()（目檢需求工時）的結果：目檢站 需求工時 - Milling、- Dipping 兩列
    * o.inputs     使用者在畫面上輸入的值（沒填的是 null，那一格留空白）：
    *   workDays      [6 個月] 工作天數
    *   workHours、restHours   工作時數、休息時數（小時，六個月共用）→ 工作時間 =(工作時數-休息時數)*60（分鐘）
@@ -3372,11 +3373,22 @@
       ws.getCell(rows.machineMinutes, R.noteCol).value = '輸入的小時 × 60';
     }
 
+    // 目檢站 需求工時：參照 MPS 工作表該段「目檢需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
+    var lh = (o && o.laborHours) || {};
+    [['cutting', 'laborMinMilling'], ['dipping', 'laborMinDipping']].forEach(function (p) {
+      var list = lh[p[0]];
+      if (!list) return;
+      for (var mm = 0; mm < R.months && mm < list.length; mm++) {
+        if (list[mm]) put(p[1], mm, { formula: list[mm].formula, result: list[mm].result }, '#,##0');
+      }
+    });
+
     // Milling站、Dipping站（算法相同，各自的列）
     //   機台需求工時：參照 MPS 工作表該段「機台需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
     //   人機比：=機台數/人員數（六個月共用），Notes 寫「1 人顧 4 機」
     //   開機數：=ROUNDUP(機台需求工時/((工作天數+該站的加班天數)*機台每日可動工時),1)
     //   顧機人數：=ROUNDUP(開機數/人機比,1)
+    //   需求顧機人數：=ROUNDUP(顧機人數*工作班別數/出勤率/作業效率,0)
     function addr(key, mm) { return numToCol(R.monthCol + mm) + rows[key]; }
     [
       { p: 'milling', hours: o && o.millingHours, ratio: o && o.millingRatio },
@@ -3399,11 +3411,39 @@
         put(k('Tenders'), mm, {
           formula: 'ROUNDUP(' + addr(k('Machines'), mm) + '/' + addr(k('Ratio'), mm) + ',1)'
         }, '0.0');
+        // 需求顧機人數 =ROUNDUP(顧機人數*工作班別數/出勤率/作業效率,0)
+        put(k('Need'), mm, {
+          formula: 'ROUNDUP(' + addr(k('Tenders'), mm) + '*' + addr('shifts', mm) + '/' + addr('attendance', mm) + '/' +
+            addr('efficiency', mm) + ',0)'
+        }, '0');
       }
       if (hasRatio) {
         ws.getCell(rows[k('Ratio')], R.noteCol).value = fmtNum(ratio.people) + ' 人顧 ' + fmtNum(ratio.machines) + ' 機';
       }
     });
+
+    // 目檢站 需求人力（小數一位無條件進位）
+    //   =ROUNDUP(需求工時/工作時間/工作班別數/(工作天數+加班天數 - 目檢)/出勤率/作業效率,1)
+    // 需求人數 - 目檢
+    //   =ROUNDUP(需求人力 - Milling*工作班別數+需求人力 - Dipping*工作班別數,1)
+    // 總需求人力 =需求顧機人數 - Milling+需求顧機人數 - dipping+需求人數 - 目檢
+    // 總現有人力 =現有人力 Milling+Dipping
+    // 人力需求差異 =總現有人力-總需求人力
+    for (m = 0; m < R.months; m++) {
+      [['laborMinMilling', 'laborPplMilling'], ['laborMinDipping', 'laborPplDipping']].forEach(function (p) {
+        put(p[1], m, {
+          formula: 'ROUNDUP(' + addr(p[0], m) + '/' + addr('workMinutes', m) + '/' + addr('shifts', m) + '/(' +
+            addr('workDays', m) + '+' + addr('laborOtDays', m) + ')/' + addr('attendance', m) + '/' + addr('efficiency', m) + ',1)'
+        }, '0.0');
+      });
+      put('laborNeed', m, {
+        formula: 'ROUNDUP(' + addr('laborPplMilling', m) + '*' + addr('shifts', m) + '+' +
+          addr('laborPplDipping', m) + '*' + addr('shifts', m) + ',1)'
+      }, '0.0');
+      put('needTotal', m, { formula: addr('millingNeed', m) + '+' + addr('dippingNeed', m) + '+' + addr('laborNeed', m) }, '0.0');
+      put('haveTotal', m, { formula: addr('haveMilling', m) + '+' + addr('haveDipping', m) }, '0.0');
+      put('gap', m, { formula: addr('haveTotal', m) + '-' + addr('needTotal', m) }, '0.0');
+    }
 
     // 列印：橫向、一頁寬
     Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
@@ -3465,7 +3505,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 19,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 22,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,

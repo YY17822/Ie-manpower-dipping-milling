@@ -12,7 +12,15 @@
  *       人機比         輸入機台數、人員數（六個月共用），填 =機台數/人員數；Notes 寫「1 人顧 4 機」
  *       開機數         =ROUNDUP(機台需求工時/((工作天數+加班天數 - Milling)*機台每日可動工時),1)
  *       顧機人數       =ROUNDUP(開機數/人機比,1)
+ *       需求顧機人數   =ROUNDUP(顧機人數*工作班別數/出勤率/作業效率,0)
  *     Dipping站     同上（參照 Dipping 段的 Total 列、自己的機台數和人員數、加班天數 - Dipping）
+ *     目檢站 需求工時 - Milling、- Dipping   公式：參照 MPS 工作表該段「目檢需求工時」第 5 步的 Total 列
+ *     目檢站 需求人力 - Milling、- Dipping
+ *       =ROUNDUP(需求工時/工作時間/工作班別數/(工作天數+加班天數 - 目檢)/出勤率/作業效率,1)
+ *     需求人數 - 目檢   =ROUNDUP(需求人力 - Milling*工作班別數+需求人力 - Dipping*工作班別數,1)
+ *     總需求人力       =需求顧機人數 - Milling+需求顧機人數 - dipping+需求人數 - 目檢
+ *     總現有人力       =現有人力 Milling+Dipping（現有人力兩列之後再補上）
+ *     人力需求差異     =總現有人力-總需求人力
  *   其他格的內容（公式）之後再一項一項補上。
  *
  *   版面（B 到 K 行、第 2 到 34 列，設定在 js/excel-io.js 的 DM_REPORT、DM_ROWS）：
@@ -22,12 +30,12 @@
  *     第 11–16 列  Milling站：機台需求工時、人機比、開機數、顧機人數；加班天數 - Milling；需求顧機人數 - Milling（淺綠底）
  *     第 17–22 列  Dipping站：同上；加班天數 - Dipping；需求顧機人數 - dipping（淺紫底）
  *     第 23–28 列  目檢站：需求工時 - Milling、需求工時 - Dipping（min/月）、需求人力 - Milling、需求人力 - Dipping（人/班）；
- *                  加班天數 - 目檢；需求顧機人數 - 目檢（淺褐底）
+ *                  加班天數 - 目檢；需求人數 - 目檢（淺褐底）
  *     第 29 列     總需求人力（淺橘底）
  *     第 30–31 列  現有人力：Milling、Dipping
  *     第 32 列     總現有人力（淺橘底，下面粗線）
  *     第 33 列     人力需求差異
- *     第 34 列     Loading Rate (9)=(X)/(1)（淺橘底）
+ *     第 34 列     Loading Rate（淺橘底）
  *
  *   月份表頭用公式參照 MPS 工作表「機台需求工時」那一塊的月份（第 5 步輸入的），例如 ='MPS'!P3。
  *
@@ -251,6 +259,12 @@
     return XIO.dmBlockTotalFormulas(main, { headerEnd: dataStartRow(src) - 1, title: MONTH_TITLE, months: R.months });
   }
 
+  // 目檢站 需求工時的公式（參照 MPS 工作表目檢需求工時那一塊各段的 Total 列）
+  var LABOR_TITLE = XIO.DEMAND_TITLES.labor;
+  function laborTotals(main, src) {
+    return XIO.dmBlockTotalFormulas(main, { headerEnd: dataStartRow(src) - 1, title: LABOR_TITLE, months: R.months });
+  }
+
   // 月份表頭要參照的儲存格：MPS 工作表「機台需求工時」那一塊的月份（大表頭下一列）
   function monthRefs(main, src) {
     var headerEnd = dataStartRow(src) - 1;
@@ -391,6 +405,7 @@
       work.refs = monthRefs(main, src);
       work.mps = mpsFormulas(main, src);
       work.machineTotals = machineTotals(main, src);
+      work.laborTotals = laborTotals(main, src);
       work.loading = false;
       refresh();
     }).catch(function (err) {
@@ -463,6 +478,19 @@
       }
     });
 
+    var lt = work.laborTotals;
+    STATIONS.forEach(function (st) {
+      var list = lt && lt[st.key];
+      var name = '目檢站 需求工時 - ' + st.label.replace('站', '');
+      if (list) {
+        els.notes.appendChild(h('li', null, name + '（公式）：' +
+          (list[0].fromTotal ? '參照第 5 步的 Total 列' : '直接加總該段') + '，例如 =' + list[0].formula + '。'));
+      } else {
+        els.notes.appendChild(h('li', { class: 'is-warn' },
+          'MPS 工作表找不到' + st.label.replace('站', '') + '段的「' + LABOR_TITLE + '」（第 5 步），' + name + '先留空白。'));
+      }
+    });
+
     var read = readInputs();
     if (read.bad.length) {
       setSummary('看不懂：' + read.bad.join('、') + '。請輸入數字。', true);
@@ -473,7 +501,7 @@
         '還沒填：' + read.blank.slice(0, 12).join('、') + (read.blank.length > 12 ? ' …等 ' + read.blank.length + ' 格' : '') +
         '。沒填的格子在總表留空白，一樣可以匯出。'));
     }
-    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站各四列（機台需求工時、人機比、開機數、顧機人數）；其他格之後再補上。'));
+    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、總現有人力、人力需求差異；現有人力、加班天數、Loading Rate 之後再補上。'));
 
     var inputs = read.values;
     els.exportBtn.disabled = false;
@@ -520,12 +548,14 @@
     return buildFrom(src).then(function (wb) {
       var main = pickMain(wb, src);
       var mt = main ? machineTotals(main, src) : null;
+      var lt = main ? laborTotals(main, src) : null;
       XIO.addDmReportSheet(wb, {
         monthRefs: refs, inputs: inputs, mps: main ? mpsFormulas(main, src) : null,
         millingHours: mt ? mt.cutting : null,
         millingRatio: { machines: inputs.millMachines, people: inputs.millPeople },
         dippingHours: mt ? mt.dipping : null,
-        dippingRatio: { machines: inputs.dipMachines, people: inputs.dipPeople }
+        dippingRatio: { machines: inputs.dipMachines, people: inputs.dipPeople },
+        laborHours: lt || null
       });
       return wb;
     });
