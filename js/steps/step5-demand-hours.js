@@ -31,8 +31,8 @@
   var ui = IEApp.ui;
   var h = IEApp.h;
 
-  var STORE_KEY = IEApp.storeKey('step4');       // 鍵名是舊的步驟編號，改掉會讓記住的設定不見，所以沿用
-  var STEP1_KEY = IEApp.storeKey('step1');
+  var STORE_KEY = 'step5';             // 共用設定的組名（IEApp.settings）
+  var STEP1_KEY = 'step1';
   var REF_SHEET = 'P003';
   var CT_HEADERS = XIO.CT_HEADERS;          // { machine: '機台 CT.', labor: '目檢 CT.' }
   var TITLES = XIO.DEMAND_TITLES;           // { machine: '機台需求工時', labor: '目檢需求工時' }
@@ -57,7 +57,7 @@
   // WIP、月份的行和第 2 步（匯總）共用同一份設定；資料起始列是這一步自己的。
   function loadSettings() {
     var s = {};
-    try { s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { s = {}; }
+    try { s = IEApp.settings.read(STORE_KEY) || {}; } catch (e) { s = {}; }
     var shared = ui.columns.get();
     return {
       wipCol: shared.wipCol,
@@ -66,7 +66,7 @@
     };
   }
   function saveSettings() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ startRow: settings.startRow })); } catch (e) { /* 存不了就算了 */ }
+    try { IEApp.settings.write(STORE_KEY, { startRow: settings.startRow }); } catch (e) { /* 存不了就算了 */ }
     ui.columns.set({ wipCol: settings.wipCol, monthCols: settings.monthCols });
   }
 
@@ -100,7 +100,7 @@
     var n = parseInt(XIO.normalizeText(settings.startRow), 10);
     if (n >= 1) return n;
     try {
-      var s1 = JSON.parse(localStorage.getItem(STEP1_KEY) || '{}') || {};
+      var s1 = IEApp.settings.read(STEP1_KEY) || {};
       n = parseInt(XIO.normalizeText(s1.startRow === undefined ? '' : s1.startRow), 10);
     } catch (e) { n = 0; }
     return n >= 1 ? n : 5;

@@ -53,7 +53,7 @@
   var ui = IEApp.ui;
   var h = IEApp.h;
 
-  var STEP1_KEY = IEApp.storeKey('step1');
+  var STEP1_KEY = 'step1';
   var R = XIO.DM_REPORT;
   var SHEET_NAME = R.sheet;
   var MONTH_TITLE = XIO.DEMAND_TITLES.machine;      // 月份從「機台需求工時」那一塊抓
@@ -81,13 +81,13 @@
     { key: 'cutting', label: 'Milling站', machines: 'millMachines', people: 'millPeople', id: 'mill' },
     { key: 'dipping', label: 'Dipping站', machines: 'dipMachines', people: 'dipPeople', id: 'dip' }
   ];
-  var INPUT_KEY = IEApp.storeKey('report-dm');
+  var INPUT_KEY = 'step7';             // 共用設定的組名（IEApp.settings）
   var INP = loadInputs();       // { workDays: ['', …], machineHours: [...], …, workHours: '', restHours: '' }（輸入框的文字）
 
   function blankMonths() { var a = []; for (var i = 0; i < R.months; i++) a.push(''); return a; }
   function loadInputs() {
     var s = {};
-    try { s = JSON.parse(localStorage.getItem(INPUT_KEY) || '{}') || {}; } catch (e) { s = {}; }
+    try { s = IEApp.settings.read(INPUT_KEY) || {}; } catch (e) { s = {}; }
     var out = { workHours: s.workHours || '', restHours: s.restHours || '' };
     STATIONS.forEach(function (st) { out[st.machines] = s[st.machines] || ''; out[st.people] = s[st.people] || ''; });
     GRID.forEach(function (g) {
@@ -100,7 +100,7 @@
     var s = { workHours: INP.workHours, restHours: INP.restHours };
     STATIONS.forEach(function (st) { s[st.machines] = INP[st.machines]; s[st.people] = INP[st.people]; });
     GRID.forEach(function (g) { if (g.remember) s[g.key] = INP[g.key]; });
-    try { localStorage.setItem(INPUT_KEY, JSON.stringify(s)); } catch (e) { /* 存不了就算了 */ }
+    try { IEApp.settings.write(INPUT_KEY, s); } catch (e) { /* 存不了就算了 */ }
   }
 
   // 輸入框的文字 → 數字。空白回傳 null；看不懂回傳 NaN。percent 時 95 或 95% 都回傳 0.95
@@ -233,7 +233,7 @@
     if (src.kind === 'prev' && src.prev.dataStartRow) return src.prev.dataStartRow;
     var n = 0;
     try {
-      var s1 = JSON.parse(localStorage.getItem(STEP1_KEY) || '{}') || {};
+      var s1 = IEApp.settings.read(STEP1_KEY) || {};
       n = parseInt(XIO.normalizeText(s1.startRow === undefined ? '' : s1.startRow), 10);
     } catch (e) { n = 0; }
     return n >= 1 ? n : 5;

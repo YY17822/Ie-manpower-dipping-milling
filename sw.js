@@ -9,7 +9,7 @@
  */
 importScripts('js/config.js');                  // 專案代號（PROJECT_ID）寫在這個檔案
 var CONFIG = self.APP_CONFIG;
-var VERSION = 22;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
+var VERSION = 23;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
 var CACHE = CONFIG.PROJECT_ID + '-v' + VERSION;    // 例如 ie-manpower-dipping-milling-v1
 var EXCELJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
 var SHELL = [
@@ -20,6 +20,8 @@ var SHELL = [
   'css/style.css',
   'js/excel-io.js',
   'js/app.js',
+  'vendor/supabase.js',
+  'js/cloud.js',
   'js/ui.js',
   'js/steps/step1-mps-filter.js',
   'js/steps/step2-mps-totals.js',
@@ -80,6 +82,8 @@ self.addEventListener('fetch', function (event) {
   }
 
   if (url.origin !== self.location.origin) return;
+  // Supabase 的請求（程式和 Supabase 架在同一個網址時）不經過快取，永遠直接問資料庫
+  if (/^\/(rest|auth|realtime|storage|functions)\/v1\//.test(url.pathname)) return;
 
   // cache: 'no-cache' = 不直接用瀏覽器自己留的舊檔，先問伺服器有沒有更新
   var fresh = req.mode === 'navigate' ? fetch(req) : fetch(req.url, { cache: 'no-cache' });

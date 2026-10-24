@@ -46,7 +46,28 @@
     } catch (e) { /* 瀏覽器不讓用 localStorage 就算了 */ }
   })();
 
+  // 各步驟的程式。登入、抓完共用設定之後才載入（各步驟一載入就會讀設定）
+  var STEP_FILES = [
+    'js/steps/step1-mps-filter.js',
+    'js/steps/step2-mps-totals.js',
+    'js/steps/step3-p003-import.js',
+    'js/steps/step4-ct-lookup.js',
+    'js/steps/step5-demand-hours.js',
+    'js/steps/step6-manpower.js',
+    'js/steps/step7-report.js'
+  ];
+  // 各步驟用到的共用設定（畫面上「上次由誰修改」看這幾個）
+  var STEP_SETTINGS = {
+    'mps-filter': ['step1'],
+    'mps-totals': ['step2', 'step2-5'],
+    'ct-lookup': ['step4'],
+    'demand-hours': ['step5', 'step2-5'],
+    'manpower': ['step6'],
+    'report': ['step7']
+  };
+
   var registry = {};
+  var stepsLoaded = false;       // 各步驟的程式載入了沒（登入前還沒載入）
   var currentId = null;
 
   /* ---------- 小工具：建立 DOM ---------- */
@@ -113,7 +134,7 @@
         h('span', { class: 'step-num', text: String(i + 1) }),
         h('span', { class: 'step-text' },
           h('span', { class: 'step-title', text: step.title }),
-          h('span', { class: 'step-note', text: ready ? step.note : '尚未開發' }))
+          h('span', { class: 'step-note', text: ready ? step.note : stepsLoaded ? '尚未開發' : '' }))
       ];
       var item = ready
         ? h('button', {
@@ -133,6 +154,25 @@
     var panel = document.getElementById('step-panel');
     panel.textContent = '';
     registry[id].render(panel, IEApp);
+    // 共用設定：上次由誰修改（放在步驟標題下面）
+    var names = STEP_SETTINGS[id];
+    if (names && IEApp.cloud && IEApp.cloud.enabled) {
+      var head = panel.querySelector('.step-head');
+      var note = IEApp.cloud.noteFor(names);
+      if (head) head.appendChild(note); else panel.insertBefore(note, panel.firstChild);
+    }
+  }
+
+  // 依序載入各步驟的程式（?v= 和版本號一樣，瀏覽器才不會用舊檔）
+  function loadSteps() {
+    var v = (global.ExcelIO && global.ExcelIO.VERSION) || '';
+    return STEP_FILES.reduce(function (p, src) {
+      return p.then(function () {
+        return loadScript(src + '?v=' + v).catch(function () {
+          throw new Error('載入不了 ' + src);
+        });
+      });
+    }, Promise.resolve());
   }
 
   function registerStep(step) { registry[step.id] = step; }
@@ -140,10 +180,19 @@
   function start() {
     var ver = document.getElementById('app-version');
     if (ver) ver.textContent = '版本 ' + ((global.ExcelIO && global.ExcelIO.VERSION) || '?');
-    var first = STEPS.filter(function (s) { return registry[s.id]; })[0];
     renderStepList();
-    if (first) go(first.id);
     loadExcelJS().catch(function () { /* 上傳檔案時會再試一次並顯示訊息 */ });
+    var cloud = IEApp.cloud ? IEApp.cloud.start() : Promise.resolve();
+    cloud.then(loadSteps).then(function () {
+      stepsLoaded = true;
+      var first = STEPS.filter(function (s) { return registry[s.id]; })[0];
+      renderStepList();
+      if (first) go(first.id);
+    }).catch(function (err) {
+      var panel = document.getElementById('step-panel');
+      panel.textContent = '';
+      panel.appendChild(h('p', { class: 'msg is-error', text: '程式載入失敗：' + (err && err.message ? err.message : err) + '。請重新整理再試一次。' }));
+    });
     // 離線快取只在用 http(s) 開啟時才有（直接點兩下 index.html 開啟也能用，只是不能安裝）
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(function () {});

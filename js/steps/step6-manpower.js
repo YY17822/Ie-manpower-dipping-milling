@@ -34,7 +34,7 @@
   var REF_SHEET = 'P003';
   var SUFFIX = '_人力';
   var MONTHS = 6;
-  var STORE_KEY = IEApp.storeKey('manpower');
+  var STORE_KEY = 'step6';             // 共用設定的組名（IEApp.settings）
   var MIN_PREVIEW_ROWS = 15;
   var MAX_PREVIEW_ROWS = 200;
   var ITEMS = XIO.MANPOWER_ITEMS;
@@ -50,7 +50,7 @@
 
   function loadSettings() {
     var s = {};
-    try { s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { s = {}; }
+    try { s = IEApp.settings.read(STORE_KEY) || {}; } catch (e) { s = {}; }
     // lastFirstCol：上次確認的當月行，只給第 7 步（上傳第 6 步檔案時）用，這一步不拿來當預設值
     return { rows: s.rows && typeof s.rows === 'object' ? s.rows : {}, lastFirstCol: parseInt(s.lastFirstCol, 10) || 0 };
   }
@@ -60,7 +60,7 @@
       if (S.pick.rows[item.key]) settings.rows[item.key] = S.pick.rows[item.key];
     });
     if (S.pick.firstCol) settings.lastFirstCol = S.pick.firstCol;
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) { /* 存不了就算了 */ }
+    try { IEApp.settings.write(STORE_KEY, settings); } catch (e) { /* 存不了就算了 */ }
   }
 
   function sameName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }

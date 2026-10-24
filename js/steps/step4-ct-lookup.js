@@ -27,8 +27,8 @@
   var ui = IEApp.ui;
   var h = IEApp.h;
 
-  var STORE_KEY = IEApp.storeKey('step3');       // 鍵名是舊的步驟編號，改掉會讓記住的設定不見，所以沿用
-  var STEP1_KEY = IEApp.storeKey('step1');
+  var STORE_KEY = 'step4';             // 共用設定的組名（IEApp.settings）
+  var STEP1_KEY = 'step1';
   var REF_SHEET = 'P003';
   var SUFFIX = '_CT';
   var KEY_HINT = /p\s*\/?\s*n|料號|part|material|型號/i;   // 猜哪一行是料號
@@ -65,13 +65,13 @@
 
   function loadSettings() {
     var s = {};
-    try { s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { s = {}; }
+    try { s = IEApp.settings.read(STORE_KEY) || {}; } catch (e) { s = {}; }
     var out = {};
     Object.keys(DEFAULTS).forEach(function (k) { out[k] = s[k] === undefined ? DEFAULTS[k] : s[k]; });
     return out;
   }
   function saveSettings() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) { /* 存不了就算了 */ }
+    try { IEApp.settings.write(STORE_KEY, settings); } catch (e) { /* 存不了就算了 */ }
   }
 
   function isRefName(name) { return String(name).toLowerCase() === REF_SHEET.toLowerCase(); }
@@ -107,7 +107,7 @@
     var n = parseInt(XIO.normalizeText(settings.startRow), 10);
     if (n >= 1) return n;
     try {
-      var s1 = JSON.parse(localStorage.getItem(STEP1_KEY) || '{}') || {};
+      var s1 = IEApp.settings.read(STEP1_KEY) || {};
       n = parseInt(XIO.normalizeText(s1.startRow === undefined ? '' : s1.startRow), 10);
     } catch (e) { n = 0; }
     return n >= 1 ? n : 5;

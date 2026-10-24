@@ -173,14 +173,13 @@
 
   /* ---------- WIP、各月產量在哪幾行（第 2 步匯總和第 5 步計算需求工時共用） ---------- */
   // 兩個步驟讀寫的是同一份設定，在其中一步改了，另一步也會跟著變，避免兩邊對不起來。
-  var COLUMNS_KEY = IEApp.storeKey('columns');
-  var COLUMNS_OLD_KEY = IEApp.storeKey('step4');       // 舊版存在這裡，第一次讀的時候搬過來
+  var COLUMNS_KEY = 'step2-5';         // 組名：第 2、5 步共用（不是各產線共用）
 
   function readJson(key) {
-    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+    return IEApp.settings.read(key);
   }
   function getColumns() {
-    var s = readJson(COLUMNS_KEY) || readJson(COLUMNS_OLD_KEY) || {};
+    var s = readJson(COLUMNS_KEY) || {};
     return {
       wipCol: s.wipCol === undefined ? '' : String(s.wipCol),
       monthCols: s.monthCols === undefined ? '' : String(s.monthCols)
@@ -188,7 +187,7 @@
   }
   function setColumns(value) {
     try {
-      localStorage.setItem(COLUMNS_KEY, JSON.stringify({ wipCol: value.wipCol || '', monthCols: value.monthCols || '' }));
+      IEApp.settings.write(COLUMNS_KEY, { wipCol: value.wipCol || '', monthCols: value.monthCols || '' });
     } catch (e) { /* 存不了就算了 */ }
   }
 

@@ -1,6 +1,6 @@
 # IE 人力需求程式（Dipping_Milling）
 
-IE 部門每月月底計算未來六個月人力需求的小工具（Dipping_Milling 版，從 3F 取像版複製來改）。一步一步做，目前有第 1 到第 7 步（原本 3F 取像版的需求工時匯總、RMA 需求工時、RMA人力需求三步已刪除；第 7 步總表的內容還沒填）。
+IE 部門每月月底計算未來六個月人力需求的小工具（Dipping_Milling 版，從 3F 取像版複製來改）。一步一步做，目前有第 1 到第 7 步（原本 3F 取像版的需求工時匯總、RMA 需求工時、RMA人力需求三步已刪除；第 7 步總表還有幾列沒填）。
 
 名詞：**行** = 直的（A、B、C…），**列** = 橫的（1、2、3…）。
 
@@ -270,7 +270,8 @@ ExcelJS 4.x 只看到標籤就當成「有」，結果匯出後整張表被畫�
 
 ```
 index.html                  主畫面
-js/config.js                專案代號（快取和記住的設定都用它當開頭）
+js/config.js                專案代號、Supabase 網址和公開鑰匙（SUPABASE_PUBLIC_URL、SUPABASE_PUBLISHABLE_KEY）
+js/cloud.js                 登入與共用設定（Supabase）
 manifest.webmanifest        安裝成 App 用的資訊
 sw.js                       離線快取
 css/style.css               樣式
@@ -284,27 +285,116 @@ js/steps/step4-ct-lookup.js     第 4 步　帶入標準工時 CT.
 js/steps/step5-demand-hours.js  第 5 步　計算需求工時
 js/steps/step6-manpower.js      第 6 步　匯入人力報表
 js/steps/step7-report.js        第 7 步　總表
+vendor/supabase.js          supabase-js 2.117.3（連 Supabase 用，必要）
 vendor/                     ExcelJS 本機副本（可選）
 icons/                      圖示
 啟動小程式.command           在 Mac 上啟動
+.gitignore                  不進 git 的檔案（.DS_Store、.env）
 ```
 
-新增步驟時：在 `js/steps/` 加一個檔案、在 `index.html` 加一行 `<script>`、
-在 `sw.js` 的 `SHELL` 加上檔名並把 `CACHE` 版本號加 1。
+新增步驟時：在 `js/steps/` 加一個檔案、在 `js/app.js` 的 `STEPS`、`STEP_FILES`（和要顯示「上次由誰修改」的 `STEP_SETTINGS`）加上它、
+在 `sw.js` 的 `SHELL` 加上檔名並把 `VERSION` 加 1。
 檔名開頭的數字就是步驟編號；在中間插入新步驟時，後面的檔案要跟著改名。
 
 每次改版：把 `js/excel-io.js` 裡的 `VERSION` 和 `index.html` 裡每個 `?v=` 的數字一起加 1。
 畫面右上角會顯示「版本 N」，可以用來確認瀏覽器跑的是不是最新的程式。
 
-每一步做完會把結果放在 `IEApp.state`（第 1 步是 `mpsFiltered`，第 2 步是 `mpsTotals`，第 3 步是 `withP003`，第 4 步是 `withCT`，第 5 步是 `withDemand`，第 6 步是 `withSummary`，第 7 步是 `withRma`，第 8 步是 `withManpower`，第 9 步是 `withReport`，第 10 步是 `withRmaManpower`），
+每一步做完會把結果放在 `IEApp.state`（第 1 步是 `mpsFiltered`，第 2 步是 `mpsTotals`，第 3 步是 `withP003`，第 4 步是 `withCT`，第 5 步是 `withDemand`，第 6 步是 `withManpower`，第 7 步是 `withReport`），
 裡面的 `build()` 會產生一份新的活頁簿，下一步拿來接著加工。
+
+## 登入與共用設定（Supabase）
+
+部門的人共用同一份「記住的設定」：誰最後存，大家打開看到的就是誰的。
+
+- 打開時要先登入（email + 密碼）。帳號由管理者在 Supabase 後台建立（Authentication → Users → Add user），不開放自行註冊。
+- 設定存在 Supabase 專案的 `ie_manpower.settings` 表：一筆是 `(app, key) → value`。
+  - `app`：專案代號（`js/config.js` 的 `PROJECT_ID`）。8 個人力需求 PWA 共用這張表，用 `app` 分開。
+  - `key`：「步驟.輸入項目」，例如 `step7.workHours` 是第 7 步的工作時數。組名一律用步驟編號（`step1`～`step7`），第 2、5 步共用的 WIP／月份行是 `step2-5`（同一個軟件的兩步共用，不是各產線共用）。
+  - `value`：那個輸入項目的值（JSON）。6 個月、Off line 各種人數這種一起看的值放在同一筆（陣列）。
+  - 一個輸入項目一筆，所以兩個人同時改同一步的不同項目，不會互相蓋掉；每個項目都記得是誰改的。
+- 誰改的、什麼時候改的由資料庫自動記錄（`updated_by`、`updated_at`），各步驟標題下面會顯示「共用設定：上次由 某某 於 10/19 16:05 修改」。
+- 右上角顯示登入的人、同步狀態（已同步／同步中／離線）和「登出」。
+- 讀設定一律讀這台電腦的本機備份（localStorage），所以離線也能用；改了設定先存本機，再在背景上傳（停止輸入 1 秒後）。離線時改的會等連上網路自動上傳。
+- 打開時先把 Supabase 上最新的設定抓下來蓋掉本機備份，才載入各步驟（所以 `index.html` 裡沒有各步驟的 `<script>`，改由 `js/app.js` 的 `STEP_FILES` 載入）。
+- 第一次登入時，這台電腦原本有、但 Supabase 上還沒有的設定會傳上去。
+- 舊版的組名第一次打開新版時會自動改成步驟編號：`totals`→`step2`、`columns`→`step2-5`、`step3`→`step4`、`step4`→`step5`、`manpower`→`step6`、`report-dm`→`step7`。從 3F 取像複製時留下、已刪除步驟的舊資料（`step5`、`step6`、`report`、`rma-manpower`）直接丟掉，不會和新的第 5、6 步撞名。
+
+Dipping_Milling 存進資料庫的輸入項目：
+
+| key | 對應的輸入框 |
+| --- | --- |
+| `step1.mode` | 第 1 步：篩選方式（依製程 TTL 列／依狀態） |
+| `step1.cutValues`、`step1.dipValues`、`step1.cutProc`、`step1.dipProc` | 第 1 步：Cutting、Dipping 兩段的篩選值和製程 |
+| `step1.cols`、`step1.startRow`、`step1.selCol`、`step1.pnCol` | 第 1 步：保留的行、資料起始列、篩選用的行、料號的行 |
+| `step2.startRow` | 第 2 步：資料起始列（報表版面不一樣時） |
+| `step2-5.wipCol`、`step2-5.monthCols` | 第 2、5 步共用：WIP 在哪行、各月在哪幾行 |
+| `step4.keyCol`、`step4.refKeyCol`、`step4.refMachineCol`、`step4.refLaborCol`、`step4.refBaseCol`、`step4.startRow` | 第 4 步：MPS 料號、P003 料號／Machine／Labor／Base Qty 的行、資料起始列 |
+| `step4.cutRate`、`step4.dipRate` | 第 4 步：Cutting、Dipping 的目檢-檢驗率 |
+| `step5.startRow` | 第 5 步：資料起始列 |
+| `step6.rows`、`step6.lastFirstCol` | 第 6 步：各項目在人力報表第幾列、上次的當月行 |
+| `step7.workHours`、`step7.restHours` | 第 7 步：工作時數、休息時數 |
+| `step7.machineHours`、`step7.shifts`、`step7.attendance`、`step7.efficiency` | 第 7 步：機台每日可動工時、班別、出勤率、綜合效率，各 6 個月 |
+| `step7.millMachines`、`step7.millPeople`、`step7.dipMachines`、`step7.dipPeople` | 第 7 步：Milling、Dipping 站的機台數和人數 |
+- 不記住的欄位（第 7 步的平日工作天數）照舊每次輸入，不會上傳。
+- 程式在 `js/cloud.js`，用 supabase-js 套件連線（`vendor/supabase.js`，版本 2.117.3，放在專案裡，離線也載得到）。雲端、本機自架、公司主機上的 Supabase 都用同一套程式，換資料庫只改 `js/config.js` 的 `SUPABASE_PUBLIC_URL`、`SUPABASE_PUBLISHABLE_KEY`。各步驟用 `IEApp.settings.read('step7')`／`IEApp.settings.write('step7', 物件)` 讀寫一整步的設定，`cloud.js` 負責拆成一個個輸入項目上傳、下載時再組回去。
+- Supabase 的網址和公開鑰匙在 `js/config.js`。公開鑰匙本來就是公開用的；安全靠登入和資料表的權限規則（只有登入的人能讀寫，不能刪除）。`SUPABASE_SECRET_KEY`（舊式名稱：`SERVICE_ROLE_KEY`）不可以放進程式。
+- 取名原則：`js/config.js` 的設定名稱照自架 Supabase 的 `.env` 取，兩邊找得到同一個名字。
+
+  | `js/config.js` | 對應自架 `.env` | 說明 |
+  | --- | --- | --- |
+  | `SUPABASE_PUBLIC_URL` | `SUPABASE_PUBLIC_URL` | Supabase 網址 |
+  | `SUPABASE_PUBLISHABLE_KEY` | `SUPABASE_PUBLISHABLE_KEY`（舊式名稱：`ANON_KEY`） | 公開鑰匙，`sb_publishable_` 開頭 |
+  | `SUPABASE_SCHEMA` | `PGRST_DB_SCHEMAS` 清單裡的其中一個 | 這個程式用的 schema（`ie_manpower`） |
+
+- 登入資訊由 supabase-js 存在這台電腦的 `ie-manpower-dipping-milling._auth`，會自己換新憑證。
+- 有登入過的人打開時，如果 4 秒內連不上 Supabase，就先用這台電腦的設定，連上之後自動同步。
+
+### 換一個 Supabase（本機自架、公司主機）
+
+每個新的 Supabase 都要做一次：
+
+1. 執行下面的 SQL（Studio 的 SQL Editor）。
+2. 讓 API 看得到 `ie_manpower` schema：
+   - 雲端：Settings → Data API → Exposed schemas 加上 `ie_manpower`。
+   - Mac 上的 supabase CLI：`supabase/config.toml` 的 `[api]` 裡 `schemas` 加上 `"ie_manpower"`，再 `supabase stop` / `supabase start`。
+   - Docker 自架：docker 資料夾 `.env` 的 `PGRST_DB_SCHEMAS` 加上 `,ie_manpower`，再 `docker compose up -d` 重啟。
+3. 關閉自行註冊：CLI 是 `config.toml` 的 `[auth] enable_signup = false`；Docker 是 `.env` 的 `DISABLE_SIGNUP=true`。
+4. 在 Studio 的 Authentication → Users 新增同事的帳號（email + 密碼，勾 Auto Confirm）。
+5. 改 `js/config.js` 的 `SUPABASE_PUBLIC_URL`、`SUPABASE_PUBLISHABLE_KEY`（各環境要填什麼寫在檔案開頭）。
+
+搬到公司主機時要注意：
+
+- 別台電腦連的網址要寫主機的 IP 或名稱，不能寫 `127.0.0.1`／`localhost`（那是指使用者自己的電腦）。
+- 用 https 網址打開的程式（例如 GitHub Pages）不能連 http 的 Supabase（瀏覽器會擋）。程式和 Supabase 要都是 http（例如程式也放在公司主機上），或都是 https。
+- 離線快取（Service Worker）和「安裝成 App」只在 https 或 `localhost` 打開時才有；用 `http://主機IP` 打開時程式照常能用，但沒有離線功能。
+
+建立資料庫的 SQL（本機 Supabase 已經建好，8 條產線共用，不用再執行；換新的 Supabase 時才用；Exposed schemas 要加上 `ie_manpower`，見上面第 2 點）：
+
+```sql
+create schema if not exists ie_manpower;
+grant usage on schema ie_manpower to authenticated;
+create table if not exists ie_manpower.settings (
+  app text not null, key text not null, value jsonb not null,
+  updated_at timestamptz not null default now(), updated_by text,
+  primary key (app, key)
+);
+alter table ie_manpower.settings enable row level security;
+grant select, insert, update on ie_manpower.settings to authenticated;
+create policy "settings_read"   on ie_manpower.settings for select to authenticated using (true);
+create policy "settings_insert" on ie_manpower.settings for insert to authenticated with check (true);
+create policy "settings_update" on ie_manpower.settings for update to authenticated using (true) with check (true);
+create or replace function ie_manpower.stamp_settings() returns trigger language plpgsql security definer set search_path = '' as $$
+begin new.updated_at := now(); new.updated_by := auth.jwt() ->> 'email'; return new; end $$;
+create trigger settings_stamp before insert or update on ie_manpower.settings
+for each row execute function ie_manpower.stamp_settings();
+```
 
 ## 專案代號與複製成新專案
 
 這個專案的代號是 `ie-manpower-dipping-milling`（從 3F 取像版 `ie-manpower-3F-image-lens` 複製來的），寫在 `js/config.js`（網頁和 `sw.js` 都讀這個檔案）。
 
-- 離線快取的名稱：`ie-manpower-dipping-milling-v1`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
-- 記住的設定（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
+- 離線快取的名稱：`ie-manpower-dipping-milling-v23`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
+- 記住的設定的本機備份（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
 - 這是新專案，`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 都是 `null`，不會去動其他專案的設定和快取。
 - 本機啟動用的網址是 `http://localhost:8768`（3F 取像是 8765、射出是 8767）。
 
@@ -313,7 +403,8 @@ icons/                      圖示
 1. `js/config.js`：`PROJECT_ID` 改成新專案的代號；`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 改成 `null`。
 2. `manifest.webmanifest`：`name`、`short_name`（最好也換 `theme_color` 或圖示）。
 3. `啟動小程式.command`：`PORT` 改成別的號碼（例如 8766），本機測試時兩個專案才不會是同一個網址。
-4. `sw.js` 的 `VERSION`、`js/excel-io.js` 的 `VERSION`、`index.html` 的 `?v=` 可以從 1 重新開始。
+4. 共用設定（Supabase）不用改：同一個資料庫、同一個 schema，`PROJECT_ID` 不同就不會混在一起。
+5. `sw.js` 的 `VERSION`、`js/excel-io.js` 的 `VERSION`、`index.html` 的 `?v=` 可以從 1 重新開始。
 
 ## 尚未開發
 
