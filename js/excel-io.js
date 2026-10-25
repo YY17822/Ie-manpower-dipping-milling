@@ -3373,13 +3373,14 @@
     // Milling站、Dipping站（算法相同，各自的列）
     //   機台需求工時：參照 MPS 工作表該段「機台需求工時」的 Total 列（由 dmBlockTotalFormulas() 算好傳進來）
     //   人機比：=機台數/人員數（六個月共用），Notes 寫「1 人顧 4 機」
-    //   開機數：=ROUNDUP(機台需求工時/((工作天數+該站的加班天數)*機台每日可動工時),1)
+    //   開機數：=MIN(ROUNDUP(機台需求工時/((工作天數+該站的加班天數)*機台每日可動工時),1),上限)
+    //           上限是該站的機台數上限：Milling站 8、Dipping站 4（算出來超過就顯示上限）
     //   顧機人數：=ROUNDUP(開機數/人機比,1)
     //   需求顧機人數：=ROUNDUP(顧機人數*工作班別數/出勤率/作業效率,0)
     function addr(key, mm) { return numToCol(R.monthCol + mm) + rows[key]; }
     [
-      { p: 'milling', hours: o && o.millingHours, ratio: o && o.millingRatio },
-      { p: 'dipping', hours: o && o.dippingHours, ratio: o && o.dippingRatio }
+      { p: 'milling', hours: o && o.millingHours, ratio: o && o.millingRatio, maxMachines: 8 },
+      { p: 'dipping', hours: o && o.dippingHours, ratio: o && o.dippingRatio, maxMachines: 4 }
     ].forEach(function (st) {
       var k = function (name) { return st.p + name; };     // 例如 millingHours、dippingRatio
       var ratio = st.ratio || {};
@@ -3392,8 +3393,8 @@
           }, '0.0#');
         }
         put(k('Machines'), mm, {
-          formula: 'ROUNDUP(' + addr(k('Hours'), mm) + '/((' + addr('workDays', mm) + '+' + addr(k('OtDays'), mm) + ')*' +
-            addr('machineMinutes', mm) + '),1)'
+          formula: 'MIN(ROUNDUP(' + addr(k('Hours'), mm) + '/((' + addr('workDays', mm) + '+' + addr(k('OtDays'), mm) + ')*' +
+            addr('machineMinutes', mm) + '),1),' + st.maxMachines + ')'
         }, '0.0');
         put(k('Tenders'), mm, {
           formula: 'ROUNDUP(' + addr(k('Machines'), mm) + '/' + addr(k('Ratio'), mm) + ',1)'
@@ -3492,7 +3493,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 25,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 26,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,

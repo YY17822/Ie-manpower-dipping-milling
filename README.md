@@ -197,7 +197,7 @@ Milling站（第 11–14、16 列）、Dipping站（第 17–20、22 列），�
 | --- | --- | --- |
 | 機台需求工時 | 參照 MPS 工作表該段（Milling = Cutting）「機台需求工時」第 5 步的 Total 列 | Milling `='MPS'!P10`、Dipping `='MPS'!P33` |
 | 人機比 | 畫面上每一站輸入一組機台數、人員數（六個月共用）：機台數 ÷ 人員數；Notes 寫「1 人顧 4 機」 | `=4/1` |
-| 開機數 | 機台需求工時 ÷ ((工作天數 + 該站的加班天數) × 機台每日可動工時)，小數一位無條件進位 | Milling `=ROUNDUP(E11/((E3+E15)*E5),1)`、Dipping `=ROUNDUP(E17/((E3+E21)*E5),1)` |
+| 開機數 | 機台需求工時 ÷ ((工作天數 + 該站的加班天數) × 機台每日可動工時)，小數一位無條件進位；超過上限時顯示上限（Milling站 8、Dipping站 4） | Milling `=MIN(ROUNDUP(E11/((E3+E15)*E5),1),8)`、Dipping `=MIN(ROUNDUP(E17/((E3+E21)*E5),1),4)` |
 | 顧機人數 | 開機數 ÷ 人機比，小數一位無條件進位 | Milling `=ROUNDUP(E13/E12,1)`、Dipping `=ROUNDUP(E19/E18,1)` |
 | 需求顧機人數 | 顧機人數 × 工作班別數 ÷ 出勤率 ÷ 作業效率，無條件進位到整數 | Milling `=ROUNDUP(E14*E6/E7/E8,0)`、Dipping `=ROUNDUP(E20*E6/E7/E8,0)` |
 
@@ -394,7 +394,7 @@ for each row execute function ie_manpower.stamp_settings();
 
 這個專案的代號是 `ie-manpower-dipping-milling`（從 3F 取像版 `ie-manpower-3F-image-lens` 複製來的），寫在 `js/config.js`（網頁和 `sw.js` 都讀這個檔案）。
 
-- 離線快取的名稱：`ie-manpower-dipping-milling-v25`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
+- 離線快取的名稱：`ie-manpower-dipping-milling-v26`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
 - 記住的設定的本機備份（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
 - 這是新專案，`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 都是 `null`，不會去動其他專案的設定和快取。
 - 本機啟動用的網址是 `http://localhost:8768`（3F 取像是 8765、射出是 8767）。

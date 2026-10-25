@@ -9,7 +9,7 @@
  */
 importScripts('js/config.js');                  // 專案代號（PROJECT_ID）寫在這個檔案
 var CONFIG = self.APP_CONFIG;
-var VERSION = 25;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
+var VERSION = 26;                                  // 每次改版加 1（和 excel-io.js 的 VERSION、index.html 的 ?v= 一樣）
 var CACHE = CONFIG.PROJECT_ID + '-v' + VERSION;    // 例如 ie-manpower-dipping-milling-v1
 var EXCELJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
 var SHELL = [
