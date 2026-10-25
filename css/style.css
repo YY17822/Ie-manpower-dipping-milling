@@ -181,6 +181,8 @@ button.step:hover { background: rgba(11, 110, 105, 0.07); }
 .month-head { display: flex; flex-direction: column; gap: 0.25rem; }
 .month-head label { font-size: 0.875rem; color: var(--ink-2); }
 .in-month { width: 7rem; text-align: center; }
+select.in-month { text-align-last: center; }
+.month-head-btn { justify-content: flex-end; }
 .in-short { width: 12rem; }
 .in-wide { width: min(100%, 26rem); }
 

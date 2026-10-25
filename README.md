@@ -119,7 +119,7 @@ P003 的 Machine、Labor 是做 Base Qty 個的工時（Base Qty 有 1 也有 10
 
 1. 第 4 步的 Excel：剛做完第 4 步的話會直接沿用；也可以上傳之前第 4 步匯出的檔案。
 2. 確認各月產量在哪幾行（預設是第 5 到 10 行）。這組設定和第 2 步共用。機台 CT.、目檢 CT. 會自動找表頭。
-3. 輸入各月的表頭（例如 Oct、Nov），兩塊用同一組。
+3. 輸入各月的表頭，兩塊用同一組。第一個（當月）用下拉選單選 Jan～Dec，再按最後一個框後面的「自動帶出後面月份」，後面幾個月會依序填好（Dec 之後接 Jan）；後面的月份也可以自己改。
 4. 按「匯出 Excel」，得到 `…_CT_需求工時.xlsx`。
 
 結果（以當月在 E 行、機台 CT. 在 L 行、目檢 CT. 在 M 行、目檢-檢驗率在 N 行為例）：
@@ -394,7 +394,7 @@ for each row execute function ie_manpower.stamp_settings();
 
 這個專案的代號是 `ie-manpower-dipping-milling`（從 3F 取像版 `ie-manpower-3F-image-lens` 複製來的），寫在 `js/config.js`（網頁和 `sw.js` 都讀這個檔案）。
 
-- 離線快取的名稱：`ie-manpower-dipping-milling-v24`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
+- 離線快取的名稱：`ie-manpower-dipping-milling-v25`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
 - 記住的設定的本機備份（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
 - 這是新專案，`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 都是 `null`，不會去動其他專案的設定和快取。
 - 本機啟動用的網址是 `http://localhost:8768`（3F 取像是 8765、射出是 8767）。
