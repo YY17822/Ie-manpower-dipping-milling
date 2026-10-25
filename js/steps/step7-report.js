@@ -6,7 +6,7 @@
  *     機台每日可動工時   各月輸入小時，填 =小時*60（分鐘）
  *     機台每日可動工時、工作班別數、出勤率、作業效率   各月輸入，有「套用到全部月份」按鈕（第一個月的值填到後面每個月）
  *     MPS Milling、Dipping   公式：參照 MPS 工作表該段（Milling = Cutting）第 2 步的 Total 列，例如 ='MPS'!E10；
- *                            沒有 Total 列就直接加總該段（當月加 WIP）
+ *                            沒有 Total 列就直接加總該段（當月也不加 WIP）
  *     Milling站
  *       機台需求工時   公式：參照 MPS 工作表 Milling 段「機台需求工時」第 5 步的 Total 列，例如 ='MPS'!P10
  *       人機比         輸入機台數、人員數（六個月共用），填 =機台數/人員數；Notes 寫「1 人顧 4 機」
@@ -239,19 +239,18 @@
     return n >= 1 ? n : 5;
   }
 
-  // WIP、各月產量在哪幾行：和第 2、5 步共用的設定（沒有設定就用預設的第 4 行、第 5 到 10 行）
+  // 各月產量在哪幾行：和第 2、5 步共用的設定（沒有設定就用預設的第 5 到 10 行）
   function mpsColumns() {
     var shared = ui.columns.get();
-    var wip = XIO.parseColumns(shared.wipCol || '').cols;
     var months = XIO.parseColumns(shared.monthCols || '').cols;
     if (!months.length) months = [5, 6, 7, 8, 9, 10];
-    return { wipCol: wip.length === 1 ? wip[0] : 4, monthCols: months };
+    return { monthCols: months };
   }
 
   // 總表 MPS 那兩列的公式（Milling = Cutting 那一段、Dipping）
   function mpsFormulas(main, src) {
     var cols = mpsColumns();
-    return XIO.dmMpsFormulas(main, { headerEnd: dataStartRow(src) - 1, wipCol: cols.wipCol, monthCols: cols.monthCols });
+    return XIO.dmMpsFormulas(main, { headerEnd: dataStartRow(src) - 1, monthCols: cols.monthCols });
   }
 
   // Milling站、Dipping站 機台需求工時的公式（參照 MPS 工作表機台需求工時那一塊各段的 Total 列）

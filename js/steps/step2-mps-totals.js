@@ -3,17 +3,17 @@
  *   第 1 步的 MPS 分成 Cutting、Dipping 兩段。每一段的最後一列下面空一列，加一列 Total，
  *   對齊各月的行；「Total」放在第一個月左邊那一行。每格都是公式。
  *
- *   當月（第一個月）比較特別：數量要先加上 WIP。
- *   以 WIP 在 D 行、當月在 E 行、Cutting 在第 6 到 8 列為例（Total 在第 10 列）：
+ *   每個月都只加總該月的產量（當月也不加 WIP）。
+ *   以當月在 E 行、Cutting 在第 6 到 8 列為例（Total 在第 10 列）：
  *
  *     D10  Total
- *     E10  =SUM(D6:D8)+SUM(E6:E8)      當月
- *     F10  =SUM(F6:F8)                 其他月份
+ *     E10  =SUM(E6:E8)      當月
+ *     F10  =SUM(F6:F8)      其他月份
  *
  *   Total 那一列是淺綠色底（#B5E48C）；外框粗線、裡面細格線。
  *   分段是看第 1 步寫的標題（「Cutting（…）」「Dipping（…）」）找出來的，所以上傳第 1 步匯出的檔案也可以。
  *
- *   WIP 和六個月各在哪一行由使用者指定，和第 5 步（計算需求工時）共用同一組設定，
+ *   六個月各在哪一行由使用者指定，和第 5 步（計算需求工時）共用同一組設定，
  *   在其中一步改了，另一步也會跟著變，避免兩邊對不起來。
  *
  *   來源有兩種：
@@ -36,7 +36,6 @@
   var LABEL = 'Total';
   var SUFFIX = '_匯總';
   var KEY_COL = 1;              // 料號（和分段標題）在第 1 行
-  var WIP_DEFAULT = 4;          // 第 4 行是當月 WIP
   var MONTH_FIRST = 5;          // 第 5 行起是月份
   var MONTH_COUNT = 6;          // 當月 + 往後五個月
   var SECTION_NAMES = { cutting: 'Cutting', dipping: 'Dipping' };
@@ -53,7 +52,7 @@
   function loadSettings() {
     var s = {};
     try { s = IEApp.settings.read(STORE_KEY) || {}; } catch (e) { s = {}; }
-    var shared = ui.columns.get();          // WIP、月份的行和第 5 步共用
+    var shared = ui.columns.get();          // 月份的行和第 5 步共用（wipCol 已不使用，只是原樣保留）
     settings = {
       startRow: s.startRow === undefined ? '' : s.startRow,
       wipCol: shared.wipCol,
@@ -101,10 +100,6 @@
     return n >= 1 ? n : 5;
   }
 
-  function colOf(letter, max) {
-    var p = XIO.parseColumns(letter || '');
-    return p.cols.length === 1 && !p.bad.length && p.cols[0] <= max ? p.cols[0] : 0;
-  }
 
   function sectionName(s) { return SECTION_NAMES[s.key] || s.title; }
 
@@ -127,7 +122,6 @@
     });
     els.srcMsg = h('p', { class: 'msg is-error', role: 'alert', hidden: true });
 
-    els.wipCol = h('select', { id: 'ft-wip', class: 'in-select' });
     els.monthCols = h('input', {
       id: 'ft-months', type: 'text', class: 'in in-select', autocomplete: 'off', spellcheck: 'false',
       placeholder: '例如 E:J'
@@ -148,7 +142,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '匯總' }),
-      h('p', { text: 'Cutting 和 Dipping 各自在最後一列下面空一列，加上各月的預計總產量（Total）。當月會先加上 WIP 再算。每格都是公式。' })));
+      h('p', { text: 'Cutting 和 Dipping 各自在最後一列下面空一列，加上各月的預計總產量（Total）。每個月都只加總該月的產量（當月不加 WIP）。每格都是公式。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -157,11 +151,10 @@
         h('div', { class: 'link-row' }, els.switchBtn, els.backBtn),
         els.srcMsg),
       h('li', { class: 'task' },
-        h('h2', { text: 'WIP 和各月產量在哪幾行' }),
+        h('h2', { text: '各月產量在哪幾行' }),
         h('div', { class: 'field-grid' },
-          h('label', { for: 'ft-wip', text: '當月 WIP 在' }), els.wipCol,
           h('label', { for: 'ft-months', text: '各月產量在' }), els.monthCols),
-        h('p', { class: 'hint', text: '各月產量的第一行是當月，會先加上 WIP 再算；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 5 步（計算需求工時）共用。' }),
+        h('p', { class: 'hint', text: '各月產量的第一行是當月；連續的行可以寫成 E:J，也可以點下面表格最上方的行號來選。這裡的設定和第 5 步（計算需求工時）共用。' }),
         els.mainPreview,
         h('details', { class: 'advanced' },
           h('summary', { text: '報表版面不一樣時' }),
@@ -172,12 +165,6 @@
         els.summary, els.notes, els.result,
         h('div', { class: 'actions' }, els.exportBtn, els.nextBtn, els.exportNote))));
 
-    els.wipCol.addEventListener('change', function () {
-      settings.wipCol = els.wipCol.value;
-      saveSettings();
-      els.exportNote.textContent = '';
-      refresh();
-    });
     els.monthCols.addEventListener('input', function () {
       settings.monthCols = els.monthCols.value;
       saveSettings();
@@ -241,17 +228,6 @@
     });
   }
 
-  function fillSelect(select, labels, colCount, chosen) {
-    select.textContent = '';
-    select.appendChild(h('option', { value: '', text: '請選擇' }));
-    for (var c = 1; c <= colCount; c++) {
-      var letter = XIO.numToCol(c);
-      var label = labels[c] ? letter + '　' + labels[c] : letter;
-      if (label.length > 42) label = label.slice(0, 41) + '…';
-      select.appendChild(h('option', { value: letter, text: label }));
-    }
-    select.value = chosen ? XIO.numToCol(chosen) : '';
-  }
 
   // 連續的行寫成 E:J，其餘用逗號分開
   function compact(cols) {
@@ -312,8 +288,6 @@
     els.startNote.textContent = chain ? '列開始（沿用第 1 步的設定）' : '列開始';
 
     function clear() {
-      els.wipCol.textContent = '';
-      els.wipCol.appendChild(h('option', { value: '', text: '請選擇' }));
       els.mainPreview.textContent = '';
     }
     if (!src) { clear(); setSummary('先準備好第 1 步的 Excel。'); return; }
@@ -328,8 +302,7 @@
     var cols = Math.max(work.mainExt.colCount, 1);
     var labels = XIO.columnLabels(work.main, headerEnd >= 2 ? 2 : 1, Math.max(headerEnd, 1), cols);
 
-    // WIP、月份：先用記住的，沒有就用預設的位置（第 4 行、第 5 到 10 行）
-    var wipCol = colOf(settings.wipCol, cols) || (WIP_DEFAULT <= cols ? WIP_DEFAULT : 0);
+    // 月份：先用記住的，沒有就用預設的位置（第 5 到 10 行）
     var parsed = XIO.parseColumns(settings.monthCols);
     var monthCols = parsed.cols;
     if (!XIO.normalizeText(settings.monthCols)) {
@@ -337,7 +310,6 @@
       for (var c = MONTH_FIRST; c < MONTH_FIRST + MONTH_COUNT && c <= cols; c++) monthCols.push(c);
     }
 
-    fillSelect(els.wipCol, labels, cols, wipCol);
     if (!keepMonthText) els.monthCols.value = XIO.normalizeText(settings.monthCols) ? settings.monthCols : compact(monthCols);
 
     var keep = {};
@@ -352,15 +324,14 @@
       setSummary('看不懂「' + parsed.bad.join('、') + '」。行號請用英文字母，例如 E:J。', true);
       return;
     }
-    if (!wipCol) { setSummary('選擇當月 WIP 在哪一行。'); return; }
     if (!monthCols.length) { setSummary('輸入各月產量在哪幾行。'); return; }
-    var clash = monthCols.filter(function (mc) { return mc === wipCol || mc === KEY_COL || mc > cols; });
+    var clash = monthCols.filter(function (mc) { return mc === KEY_COL || mc > cols; });
     if (clash.length) {
-      setSummary(XIO.formatColumns(clash) + ' 行不能當作各月產量（和 WIP 或料號重複，或超出報表範圍）。', true);
+      setSummary(XIO.formatColumns(clash) + ' 行不能當作各月產量（和料號重複，或超出報表範圍）。', true);
       return;
     }
 
-    var opts = { headerEnd: headerEnd, keyCol: KEY_COL, wipCol: wipCol, monthCols: monthCols, label: LABEL };
+    var opts = { headerEnd: headerEnd, keyCol: KEY_COL, monthCols: monthCols, label: LABEL };
     var plan = XIO.planSectionTotals(work.main, opts);
     if (!plan.found) {
       setSummary('在 ' + XIO.numToCol(KEY_COL) + ' 行找不到「Cutting（…）」「Dipping（…）」的標題。請用這一版的第 1 步篩選，或上傳這一版第 1 步匯出的檔案。', true);
@@ -394,7 +365,7 @@
         '目前選了 ' + monthCols.length + ' 個月份，通常是 ' + MONTH_COUNT + ' 個（當月加往後五個月）。'));
     }
 
-    renderResult(plan, labels, wipCol);
+    renderResult(plan, labels);
     els.exportBtn.disabled = false;
     els.nextBtn.disabled = false;
 
@@ -406,7 +377,6 @@
       matchedRows: src.kind === 'prev' ? src.prev.matchedRows :
         plan.sections.reduce(function (n, s) { return n + s.count; }, 0),
       headerEnd: headerEnd,
-      wipCol: wipCol,
       monthCols: monthCols,
       // 各段在第幾列：[{ key, title, titleRow, firstRow, lastRow, count, totalRow }]
       sections: plan.sections.map(function (s) {
@@ -426,12 +396,12 @@
   }
 
   function monthHead(m, labels, i) {
-    var text = XIO.numToCol(m.col) + (labels[m.col] ? '　' + labels[m.col] : '') + (i === 0 ? '（加 WIP）' : '');
+    var text = XIO.numToCol(m.col) + (labels[m.col] ? '　' + labels[m.col] : '') + (i === 0 ? '（當月）' : '');
     return h('th', { class: 'colhead', scope: 'col', text: text });
   }
 
   // 各段 Total 算出來的數字，以及當月和下一個月填入的公式
-  function renderResult(plan, labels, wipCol) {
+  function renderResult(plan, labels) {
     var months = plan.sections[0].months;
     var head = h('tr', null,
       h('th', { class: 'colhead', scope: 'col', text: '列' }),
@@ -456,11 +426,10 @@
 
     var s0 = plan.sections.filter(function (s) { return s.totalRow; })[0];
     if (!s0) return;
-    var W = XIO.numToCol(wipCol);
     var a = s0.firstRow, b = s0.lastRow;
     var L = XIO.numToCol(months[0].col);
     var text = '以 ' + sectionName(s0) + ' 為例，當月（' + L + ' 行）：' +
-      L + s0.totalRow + ' =SUM(' + W + a + ':' + W + b + ')+SUM(' + L + a + ':' + L + b + ')';
+      L + s0.totalRow + ' =SUM(' + L + a + ':' + L + b + ')';
     if (months.length > 1) {
       var M = XIO.numToCol(months[1].col);
       text += '　其他月份（以 ' + M + ' 行為例）：' + M + s0.totalRow + ' =SUM(' + M + a + ':' + M + b + ')';

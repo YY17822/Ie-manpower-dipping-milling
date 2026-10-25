@@ -1410,13 +1410,12 @@
    *
    * o.dataStartRow  資料從第幾列開始
    * o.keyCol        料號在哪一行（只拿來顯示）
-   * o.wipCol        當月 WIP 在哪一行
    * o.monthCols     各月數量在哪幾行（陣列，第一個是當月）
    * o.ctCol         CT. 在哪一行
    * o.title         大表頭文字，例如 '需求工時'
    * o.headers       各月的小表頭文字（使用者自己輸入的月份）
    *
-   * 公式：當月 =(WIP+當月數量)*CT.，其餘各月 =數量*CT.
+   * 公式：各月 =數量*CT.（當月也一樣，不加 WIP）
    *
    * 回傳：
    *   startCol    要填入的第一行（原本最後一行之後空一行；已經有同名大表頭就用原本的位置）
@@ -1437,8 +1436,8 @@
       return o.headers && o.headers[i] !== undefined ? normalizeText(o.headers[i]) : '';
     });
 
-    var ctL = numToCol(o.ctCol), wipL = numToCol(o.wipCol);
-    // o.rateCol（可省略）：再乘上這一行（目檢-檢驗率），例如 =(D6+E6)*M6*N6
+    var ctL = numToCol(o.ctCol);
+    // o.rateCol（可省略）：再乘上這一行（目檢-檢驗率），例如 =E6*M6*N6
     var rateL = o.rateCol ? numToCol(o.rateCol) : '';
     var rows = [];
     var noCt = 0, errors = 0;
@@ -1456,7 +1455,6 @@
       var label = keyCell ? displayText(keyCell) : '';
       if (normalizeText(label) === '') continue;
       var ct = numberOrError(row.findCell(o.ctCol));
-      var wip = numberOrError(row.findCell(o.wipCol));
       var rate = o.rateCol ? numberOrError(row.findCell(o.rateCol)) : { value: 1 };
       var item = {
         row: r, label: label, ct: ct.error ? ct.error : ct.value, noCt: !!ct.blank,
@@ -1468,14 +1466,9 @@
       o.monthCols.forEach(function (c, i) {
         var qty = numberOrError(row.findCell(c));
         var qL = numToCol(c);
-        var err = ct.error || rate.error || qty.error || (i === 0 ? wip.error : null);
-        if (i === 0) {
-          item.formulas.push('(' + wipL + r + '+' + qL + r + ')*' + times);
-          item.values.push(err ? { error: err } : (wip.value + qty.value) * factor);
-        } else {
-          item.formulas.push(qL + r + '*' + times);
-          item.values.push(err ? { error: err } : qty.value * factor);
-        }
+        var err = ct.error || rate.error || qty.error;
+        item.formulas.push(qL + r + '*' + times);
+        item.values.push(err ? { error: err } : qty.value * factor);
         if (err) bad = true;
       });
       if (item.noCt) noCt++;
@@ -1585,18 +1578,18 @@
 
   /*
    * 兩塊需求工時：
-   *   機台需求工時   各月數量 × 機台 CT.（當月是 (WIP + 當月數量) × 機台 CT.）
-   *   目檢需求工時   各月數量 × 目檢 CT. × 目檢-檢驗率（當月是 (WIP + 當月數量) × 目檢 CT. × 目檢-檢驗率）
+   *   機台需求工時   各月數量 × 機台 CT.（當月也一樣，不加 WIP）
+   *   目檢需求工時   各月數量 × 目檢 CT. × 目檢-檢驗率
    * 位置：機台需求工時從「目檢-檢驗率之後空一行」開始（原本最後一行之後空一行），
    *       目檢需求工時從「機台需求工時最後一個月之後空一行」開始；已經有同名大表頭就覆蓋原本的位置。
    * 只算 Cutting、Dipping 兩段的資料列（o.rows，沒給就自己找）。
    *
-   * o: { dataStartRow, keyCol, wipCol, monthCols, machineCtCol, laborCtCol, laborRateCol, headers, rows }
+   * o: { dataStartRow, keyCol, monthCols, machineCtCol, laborCtCol, laborRateCol, headers, rows }
    * 回傳 { machine: planDemand 的結果, labor: planDemand 的結果, rows }
    */
   function demandOptions(o, which, startCol) {
     return {
-      dataStartRow: o.dataStartRow, keyCol: o.keyCol, wipCol: o.wipCol, monthCols: o.monthCols,
+      dataStartRow: o.dataStartRow, keyCol: o.keyCol, monthCols: o.monthCols,
       ctCol: which === 'machine' ? o.machineCtCol : o.laborCtCol,
       rateCol: which === 'labor' ? o.laborRateCol : undefined,      // 目檢需求工時再乘目檢-檢驗率
       title: DEMAND_TITLES[which], headers: o.headers, rows: o.rows, startCol: startCol
@@ -1908,8 +1901,7 @@
    *
    * o.headerEnd   表頭最後一列
    * o.keyCol      料號在哪一行（分段標題也在這一行）
-   * o.wipCol      當月 WIP 在哪一行
-   * o.monthCols   各月產量在哪幾行（第一個是當月，要加 WIP）
+   * o.monthCols   各月產量在哪幾行（第一個是當月；每個月都只加總該月產量，當月不加 WIP）
    *
    * 回傳：
    *   found      有沒有找到分段
@@ -1928,9 +1920,8 @@
         for (var r = s.firstRow; r <= s.lastRow; r++) {
           var row = main.findRow(r);
           var qty = numberOrError(row ? row.findCell(c) : null);
-          var wip = i === 0 ? numberOrError(row ? row.findCell(o.wipCol) : null) : { value: 0 };
-          if (qty.error || wip.error) { if (!error) error = qty.error || wip.error; continue; }
-          total += qty.value + wip.value;
+          if (qty.error) { if (!error) error = qty.error; continue; }
+          total += qty.value;
         }
         return { col: c, total: total, error: error };
       });
@@ -1940,10 +1931,10 @@
 
   /*
    * 每一段的最後一列下面空一列，加一列 Total（對齊各月的行），每格都是公式。
-   * 以 WIP 在 D 行、當月在 E 行、Cutting 在第 6 到 8 列為例（Total 在第 10 列）：
+   * 以當月在 E 行、Cutting 在第 6 到 8 列為例（Total 在第 10 列）：
    *   D10  Total
-   *   E10  =SUM(D6:D8)+SUM(E6:E8)      當月要加 WIP
-   *   F10  =SUM(F6:F8)                 其他月份
+   *   E10  =SUM(E6:E8)      當月（不加 WIP）
+   *   F10  =SUM(F6:F8)      其他月份
    *
    * 外觀：整列淺綠色底（#B5E48C）；「Total」置中；標籤加上各月圍成一塊，外框粗線、裡面細格線。
    * o.label  文字標籤（預設 Total）；其餘參數和 planSectionTotals 一樣，回傳的也是同一份結果。
@@ -1954,7 +1945,6 @@
     var leftCol = plan.labelCol || Math.min.apply(null, o.monthCols);
     var rightCol = Math.max.apply(null, o.monthCols);
     var THIN = { style: 'thin' }, THICK = { style: 'medium' };
-    var wipL = numToCol(o.wipCol);
 
     plan.sections.forEach(function (s) {
       if (!s.totalRow) return;
@@ -1977,9 +1967,7 @@
       s.months.forEach(function (m, i) {
         var L = numToCol(m.col);
         var range = L + s.firstRow + ':' + L + s.lastRow;
-        var formula = i === 0
-          ? 'SUM(' + wipL + s.firstRow + ':' + wipL + s.lastRow + ')+SUM(' + range + ')'
-          : 'SUM(' + range + ')';
+        var formula = 'SUM(' + range + ')';
         var cell = main.getCell(r, m.col);
         cell.style = style(m.col, { numFmt: INTEGER_FORMAT, alignment: { vertical: 'middle' } });
         cell.value = { formula: formula, result: m.error ? { error: m.error } : m.total };
@@ -2558,7 +2546,7 @@
 
   /*
    * 總表各列要從 MPS 工作表哪一列抓數值：用列的文字標籤找。
-   *   Total               第 2 步匯總（當月已含 WIP）
+   *   Total               第 2 步匯總（當月不含 WIP）
    *   Top 3 總需求工時     第 6 步
    *   Others 總需求工時    第 6 步
    *   RMA總需求工時        第 7 步
@@ -3196,16 +3184,15 @@
   /*
    * 總表 MPS 那兩列（Milling = 第 1 步的 Cutting、Dipping）要填的公式：該段各月的 MPS 合計。
    *   有第 2 步的 Total 列（該段最後一列之後空一列、標籤是 Total）：直接參照它，例如 ='MPS'!E10
-   *   沒有：直接加總該段，當月加 WIP，例如 =SUM('MPS'!D6:D8)+SUM('MPS'!E6:E8)、=SUM('MPS'!F6:F8)
-   * o: { headerEnd, wipCol, monthCols }
+   *   沒有：直接加總該段，例如 =SUM('MPS'!E6:E8)（當月也不加 WIP）
+   * o: { headerEnd, monthCols }
    * 回傳 { found, cutting: [{ formula, result, fromTotal }…6] 或 null, dipping: 同上, sections }
    */
   function dmMpsFormulas(main, o) {
-    var plan = planSectionTotals(main, { headerEnd: o.headerEnd, keyCol: 1, wipCol: o.wipCol, monthCols: o.monthCols });
+    var plan = planSectionTotals(main, { headerEnd: o.headerEnd, keyCol: 1, monthCols: o.monthCols });
     var out = { found: plan.found, cutting: null, dipping: null, sections: plan.sections };
     if (!plan.found) return out;
     var ref = sheetRef(main.name);
-    var wipL = numToCol(o.wipCol);
     plan.sections.forEach(function (s) {
       if (out[s.key] || !s.count) return;
       var hasTotal = false;
@@ -3219,7 +3206,7 @@
         if (hasTotal) formula = ref + L + s.totalRow;
         else {
           var range = L + s.firstRow + ':' + L + s.lastRow;
-          formula = (i === 0 ? 'SUM(' + ref + wipL + s.firstRow + ':' + wipL + s.lastRow + ')+' : '') + 'SUM(' + ref + range + ')';
+          formula = 'SUM(' + ref + range + ')';
         }
         return { formula: formula, result: m.error ? { error: m.error } : m.total, fromTotal: hasTotal };
       });
@@ -3505,7 +3492,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 23,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 24,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,

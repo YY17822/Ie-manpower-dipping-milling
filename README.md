@@ -53,19 +53,20 @@ Cutting／Dipping 的製程名稱（就是 TTL ( ) 括號裡的字，也是匯�
 Cutting 和 Dipping 各自在最後一列下面空一列，加一列各月的預計總產量（Total）。
 
 1. 第 1 步的 Excel：剛做完第 1 步的話會直接沿用；也可以上傳這一版第 1 步匯出的檔案。
-2. 確認當月 WIP 在哪一行、各月產量在哪幾行（預設是第 4 行和第 5 到 10 行；第一個是當月）。這組設定和第 5 步共用。
+2. 確認各月產量在哪幾行（預設是第 5 到 10 行；第一個是當月）。這組設定和第 5 步共用。
 3. 按「匯出 Excel」，得到 `…_篩選_匯總.xlsx`。
 
-結果（以 WIP 在 D 行、當月在 E 行、Cutting 在第 6 到 8 列、Dipping 在第 20 到 31 列為例）：
+結果（以當月在 E 行、Cutting 在第 6 到 8 列、Dipping 在第 20 到 31 列為例）：
+
+每個月都只加總該月的產量；當月也不加 WIP（版本 24 起）。
 
 | 位置 | 內容 |
 | --- | --- |
 | D10 | `Total` |
-| E10（當月，要加 WIP） | `=SUM(D6:D8)+SUM(E6:E8)` |
-| F10 到 J10（其他月份） | `=SUM(F6:F8)` … |
-| D33、E33… | Dipping 的 Total，例如 `=SUM(D20:D31)+SUM(E20:E31)` |
+| E10 到 J10（各月） | `=SUM(E6:E8)`、`=SUM(F6:F8)` … |
+| D33、E33… | Dipping 的 Total，例如 `=SUM(E20:E31)` |
 
-- 位置：每一段最後一列之後空一列；「Total」在第一個月左邊那一行（通常就是 WIP 那一行），置中。
+- 位置：每一段最後一列之後空一列；「Total」在第一個月左邊那一行，置中。
 - 外觀：整列淺綠色底（`#B5E48C`）；「Total」加上各月圍成一塊，外框粗線、裡面細格線。
 - 分段是看第 1 步寫在第 1 行的標題（`Cutting（…）`、`Dipping（…）`）找出來的：標題下面、第 1 行（料號）有值的列就是那一段的資料，遇到空白列就結束。
 - 某一段沒有料號時不加 Total，畫面會提醒。
@@ -117,23 +118,23 @@ P003 的 Machine、Labor 是做 Base Qty 個的工時（Base Qty 有 1 也有 10
 把每個料號各月的計畫產量乘上第 4 步的「機台 CT.」算出機台需求工時；乘上「目檢 CT.」再乘「目檢-檢驗率」算出目檢需求工時。
 
 1. 第 4 步的 Excel：剛做完第 4 步的話會直接沿用；也可以上傳之前第 4 步匯出的檔案。
-2. 確認當月 WIP 在哪一行、各月產量在哪幾行（預設是第 4 行和第 5 到 10 行）。這組設定和第 2 步共用。機台 CT.、目檢 CT. 會自動找表頭。
+2. 確認各月產量在哪幾行（預設是第 5 到 10 行）。這組設定和第 2 步共用。機台 CT.、目檢 CT. 會自動找表頭。
 3. 輸入各月的表頭（例如 Oct、Nov），兩塊用同一組。
 4. 按「匯出 Excel」，得到 `…_CT_需求工時.xlsx`。
 
-結果（以 WIP 在 D 行、當月在 E 行、機台 CT. 在 L 行、目檢 CT. 在 M 行、目檢-檢驗率在 N 行為例）：
+結果（以當月在 E 行、機台 CT. 在 L 行、目檢 CT. 在 M 行、目檢-檢驗率在 N 行為例）：
 
 | 位置 | 內容 | 當月 | 其他月份 |
 | --- | --- | --- | --- |
 | O 行 | 空一行 | | |
-| P 到 U 行 | 機台需求工時 | `=(D6+E6)*L6` | `=F6*L6` |
+| P 到 U 行 | 機台需求工時 | `=E6*L6` | `=F6*L6` |
 | V 行 | 空一行 | | |
-| W 到 AB 行 | 目檢需求工時 | `=(D6+E6)*M6*N6` | `=F6*M6*N6` |
+| W 到 AB 行 | 目檢需求工時 | `=E6*M6*N6` | `=F6*M6*N6` |
 
 - 只算 Cutting、Dipping 兩段的料號列；標題、中間的空白列、第 2 步的 Total 列都不填。
 - 每一塊在 Cutting（Milling）、Dipping 各自最後一列下面空一列，加一列 Total（和第 2 步的 Total 同一列）：
   「Total」放在這一塊左邊那一行（O、V 行），各月 `=SUM(P6:P8)`；淺綠底（`#B5E48C`），外框粗線、裡面細線。
-- 每格都是公式；當月一律先加上 WIP 再乘 CT.。
+- 每格都是公式；當月和其他月份一樣，只用該月產量乘 CT.，不加 WIP（版本 24 起）。
 - 表頭：第 2 列是跨所有月份置中的「機台需求工時」／「目檢需求工時」；第 3、4 列合併，寫你輸入的月份。
 - 數值只顯示整數。儲存格裡仍保留小數，加總用的是完整的數值。
 - 沒有 CT. 的料號（第 4 步在 P003 找不到）一樣會填公式，結果是 0，並標上淺紅色底；畫面上會列出是哪些料號。
@@ -184,11 +185,11 @@ MPS 的兩列（公式，Milling 就是第 1 步的 Cutting 那一段）：
 
 | 總表的列 | 填入 | 例子 |
 | --- | --- | --- |
-| MPS Milling | 參照 MPS 工作表 Cutting 那一段第 2 步的 Total 列（當月已含 WIP） | `='MPS'!E10` |
+| MPS Milling | 參照 MPS 工作表 Cutting 那一段第 2 步的 Total 列（當月不含 WIP） | `='MPS'!E10` |
 | MPS Dipping | 參照 Dipping 那一段的 Total 列 | `='MPS'!E33` |
 
-- 檔案裡沒有 Total 列（跳過第 2 步）時，改成直接加總該段：當月 `=SUM('MPS'!D6:D8)+SUM('MPS'!E6:E8)`，其他月份 `=SUM('MPS'!F6:F8)`。
-- 各月在哪一行、WIP 在哪一行，用第 2、5 步共用的設定。
+- 檔案裡沒有 Total 列（跳過第 2 步）時，改成直接加總該段：例如 `=SUM('MPS'!E6:E8)`，當月也不加 WIP。
+- 各月在哪一行，用第 2、5 步共用的設定。
 
 Milling站（第 11–14、16 列）、Dipping站（第 17–20、22 列），算法相同，都是公式：
 
@@ -277,7 +278,7 @@ sw.js                       離線快取
 css/style.css               樣式
 js/app.js                   外框：步驟清單、切換步驟、載入 ExcelJS
 js/excel-io.js              所有 Excel 讀寫與排版（ExcelJS）
-js/ui.js                    各步驟共用的畫面元件：上傳區、試算表預覽、下載，以及 WIP／月份行的共用設定
+js/ui.js                    各步驟共用的畫面元件：上傳區、試算表預覽、下載，以及月份行的共用設定
 js/steps/step1-mps-filter.js    第 1 步　篩選 MPS 報表
 js/steps/step2-mps-totals.js    第 2 步　匯總
 js/steps/step3-p003-import.js   第 3 步　匯入 P003 標準工時
@@ -309,7 +310,7 @@ icons/                      圖示
 - 打開時要先登入（email + 密碼）。帳號由管理者在 Supabase 後台建立（Authentication → Users → Add user），不開放自行註冊。
 - 設定存在 Supabase 專案的 `ie_manpower.settings` 表：一筆是 `(app, key) → value`。
   - `app`：專案代號（`js/config.js` 的 `PROJECT_ID`）。8 個人力需求 PWA 共用這張表，用 `app` 分開。
-  - `key`：「步驟.輸入項目」，例如 `step7.workHours` 是第 7 步的工作時數。組名一律用步驟編號（`step1`～`step7`），第 2、5 步共用的 WIP／月份行是 `step2-5`（同一個軟件的兩步共用，不是各產線共用）。
+  - `key`：「步驟.輸入項目」，例如 `step7.workHours` 是第 7 步的工作時數。組名一律用步驟編號（`step1`～`step7`），第 2、5 步共用的月份行是 `step2-5`（同一個軟件的兩步共用，不是各產線共用）。
   - `value`：那個輸入項目的值（JSON）。6 個月、Off line 各種人數這種一起看的值放在同一筆（陣列）。
   - 一個輸入項目一筆，所以兩個人同時改同一步的不同項目，不會互相蓋掉；每個項目都記得是誰改的。
 - 誰改的、什麼時候改的由資料庫自動記錄（`updated_by`、`updated_at`），各步驟標題下面會顯示「共用設定：上次由 某某 於 10/19 16:05 修改」。
@@ -327,7 +328,7 @@ Dipping_Milling 存進資料庫的輸入項目：
 | `step1.cutValues`、`step1.dipValues`、`step1.cutProc`、`step1.dipProc` | 第 1 步：Cutting、Dipping 兩段的篩選值和製程 |
 | `step1.cols`、`step1.startRow`、`step1.selCol`、`step1.pnCol` | 第 1 步：保留的行、資料起始列、篩選用的行、料號的行 |
 | `step2.startRow` | 第 2 步：資料起始列（報表版面不一樣時） |
-| `step2-5.wipCol`、`step2-5.monthCols` | 第 2、5 步共用：WIP 在哪行、各月在哪幾行 |
+| `step2-5.monthCols` | 第 2、5 步共用：各月在哪幾行（`step2-5.wipCol` 是舊的 WIP 行，版本 24 起不再使用） |
 | `step4.keyCol`、`step4.refKeyCol`、`step4.refMachineCol`、`step4.refLaborCol`、`step4.refBaseCol`、`step4.startRow` | 第 4 步：MPS 料號、P003 料號／Machine／Labor／Base Qty 的行、資料起始列 |
 | `step4.cutRate`、`step4.dipRate` | 第 4 步：Cutting、Dipping 的目檢-檢驗率 |
 | `step5.startRow` | 第 5 步：資料起始列 |
@@ -393,7 +394,7 @@ for each row execute function ie_manpower.stamp_settings();
 
 這個專案的代號是 `ie-manpower-dipping-milling`（從 3F 取像版 `ie-manpower-3F-image-lens` 複製來的），寫在 `js/config.js`（網頁和 `sw.js` 都讀這個檔案）。
 
-- 離線快取的名稱：`ie-manpower-dipping-milling-v23`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
+- 離線快取的名稱：`ie-manpower-dipping-milling-v24`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
 - 記住的設定的本機備份（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
 - 這是新專案，`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 都是 `null`，不會去動其他專案的設定和快取。
 - 本機啟動用的網址是 `http://localhost:8768`（3F 取像是 8765、射出是 8767）。
