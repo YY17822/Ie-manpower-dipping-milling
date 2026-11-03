@@ -2,7 +2,7 @@
 # 在這台 Mac 上啟動 IE 人力需求小程式。
 # 用 http://localhost 開啟，才能安裝成 App、離線使用。用完把這個視窗關掉即可。
 cd "$(dirname "$0")" || exit 1
-PORT=8768
+PORT=3005
 PY=""
 for c in python3 "$HOME/anaconda3/bin/python3" "$HOME/opt/anaconda3/bin/python3" /opt/anaconda3/bin/python3; do
   if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi

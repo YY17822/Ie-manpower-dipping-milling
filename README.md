@@ -7,7 +7,8 @@ IE 部門每月月底計算未來六個月人力需求的小工具（Dipping_Mil
 ## 怎麼開啟
 
 - **最簡單**：點兩下 `index.html`，用 Chrome 或 Edge 開啟。
-- **要安裝成 App、離線使用**：點兩下 `啟動小程式.command`，瀏覽器會開啟 `http://localhost:8768`。用完把跳出來的終端機視窗關掉。
+- **要安裝成 App、離線使用**：點兩下 `啟動小程式.command`，瀏覽器會開啟 `http://localhost:3005`。用完把跳出來的終端機視窗關掉。
+- **用 VS Code Go Live**：用 VS Code 開啟這個資料夾，按右下角 Go Live，瀏覽器會開啟 `http://127.0.0.1:3005`（port 在 `.vscode/settings.json`）。
 
 第一次使用需要連上網路，小程式會載入 ExcelJS（讀寫 Excel 的元件）。
 要在不能連外部網站的電腦上用，請看 `vendor/README.txt`。
@@ -397,13 +398,13 @@ for each row execute function ie_manpower.stamp_settings();
 - 離線快取的名稱：`ie-manpower-dipping-milling-v26`（代號 + 版本號，版本號在 `sw.js` 的 `VERSION`）。新版啟用時，只刪「這個代號、但不是目前版本」的舊快取，別的專案的快取不碰。
 - 記住的設定的本機備份（localStorage）：`ie-manpower-dipping-milling.step1` 這種名稱，用 `IEApp.storeKey('step1')` 產生。
 - 這是新專案，`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 都是 `null`，不會去動其他專案的設定和快取。
-- 本機啟動用的網址是 `http://localhost:8768`（3F 取像是 8765、射出是 8767）。
+- 本機啟動用的網址是 `http://localhost:3005`（Go Live 是 `http://127.0.0.1:3005`）。
 
 複製成新專案時要改的地方：
 
 1. `js/config.js`：`PROJECT_ID` 改成新專案的代號；`LEGACY_STORE_PREFIX`、`LEGACY_CACHE_PATTERN` 改成 `null`。
 2. `manifest.webmanifest`：`name`、`short_name`（最好也換 `theme_color` 或圖示）。
-3. `啟動小程式.command`：`PORT` 改成別的號碼（例如 8766），本機測試時兩個專案才不會是同一個網址。
+3. `啟動小程式.command`：`PORT` 改成別的號碼；`.vscode/settings.json` 的 port 也改成同一個，各專案從 3001 開始往上加。
 4. 共用設定（Supabase）不用改：同一個資料庫、同一個 schema，`PROJECT_ID` 不同就不會混在一起。
 5. `sw.js` 的 `VERSION`、`js/excel-io.js` 的 `VERSION`、`index.html` 的 `?v=` 可以從 1 重新開始。
 
