@@ -25,6 +25,7 @@
  *                                 位置用第 6 步確認的（剛做完第 6 步就沿用；上傳的檔案用第 6 步記住的設定 step6）
  *     總現有人力       =現有人力 Milling+Dipping
  *     人力需求差異     =總現有人力-總需求人力
+ *     Loading Rate     =總需求人力/總現有人力（顯示成 %）
  *   其他格的內容（公式）之後再一項一項補上。
  *
  *   版面（B 到 K 行、第 2 到 34 列，設定在 js/excel-io.js 的 DM_REPORT、DM_ROWS）：
@@ -539,7 +540,7 @@
         '還沒填：' + read.blank.slice(0, 12).join('、') + (read.blank.length > 12 ? ' …等 ' + read.blank.length + ' 格' : '') +
         '。沒填的格子在總表留空白，一樣可以匯出。'));
     }
-    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、現有人力 Milling、Dipping、總現有人力、人力需求差異；加班天數、Loading Rate 之後再補上。'));
+    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、現有人力 Milling、Dipping、總現有人力、人力需求差異、Loading Rate；加班天數之後再補上。'));
 
     var inputs = read.values;
     els.exportBtn.disabled = false;

@@ -3621,6 +3621,7 @@
     // 總需求人力 =需求顧機人數 - Milling+需求顧機人數 - dipping+需求人數 - 目檢
     // 總現有人力 =現有人力 Milling+Dipping
     // 人力需求差異 =總現有人力-總需求人力
+    // Loading Rate =總需求人力/總現有人力（顯示成 %）
     for (m = 0; m < R.months; m++) {
       [['laborMinMilling', 'laborPplMilling'], ['laborMinDipping', 'laborPplDipping']].forEach(function (p) {
         put(p[1], m, {
@@ -3635,6 +3636,7 @@
       put('needTotal', m, { formula: addr('millingNeed', m) + '+' + addr('dippingNeed', m) + '+' + addr('laborNeed', m) }, '0.0');
       put('haveTotal', m, { formula: addr('haveMilling', m) + '+' + addr('haveDipping', m) }, '0.0');
       put('gap', m, { formula: addr('haveTotal', m) + '-' + addr('needTotal', m) }, '0.0');
+      put('loading', m, { formula: addr('needTotal', m) + '/' + addr('haveTotal', m) }, '0.0%');
     }
 
     // 現有人力 Milling、Dipping：參照「人力」工作表該行的 TTL 列（只有一組人數，六個月都一樣），
@@ -3709,7 +3711,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 28,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 29,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
