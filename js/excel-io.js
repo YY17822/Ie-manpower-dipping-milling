@@ -1100,8 +1100,13 @@
    * o.refDivCol     （可省略）要除以 ref 的哪一行（例如 Base Qty）；有給的話帶回的是 取值行 ÷ 這一行
    * o.header        新增那一行的表頭文字，例如 'CT.'
    * o.index         （可省略）buildIndex(ref, o.refKeyCol) 的結果，重複計算時可以沿用
+   * o.average       （可省略）true：同一個料號在 ref 出現很多列時，各列先算好（取值行 ÷ 除數行）再取平均
+   * o.refSkipCol    （可省略，配合 o.average）ref 的哪一行是排除條件（例如 GrC）
+   * o.skipValues    （可省略，配合 o.average）o.refSkipCol 等於這些值的列不參與平均，例如 ['B1']
    *
-   * 同一個料號在 ref 出現很多列時，取最上面那一列（和 VLOOKUP 一樣）。
+   * 沒有 o.average：同一個料號在 ref 出現很多列時，取最上面那一列（和 VLOOKUP 一樣）。
+   * 有 o.average：取所有（排除之後）列的平均，公式寫成 AVERAGE('P003'!N5/'P003'!K5,'P003'!N9/'P003'!K9)；
+   *              只剩一列時就是那一列的公式；全部都被排除時當作找不到。
    *
    * 回傳：
    *   targetCol   要填入的行（原本最後一行之後空一行；已經有同名表頭就用那一行）
@@ -1109,8 +1114,11 @@
    *   rows        [{ row, key, label, refRow, value, error, top, bottom }]  refRow = 0 表示找不到
    *   found / missing / blank   找到、找不到、料號空白的列數
    *   errors      找到了、但算不出數值的列數（除數是 0 或空白、或不是數字）
-   *   multi       找到的料號裡，有幾個在 ref 出現不只一列
-   *   multiDiff   其中有幾個「各列算出來的數值不一樣」
+   *   multi       找到的料號裡，有幾個在 ref 出現不只一列（o.average 時：排除之後還剩不只一列）
+   *   multiDiff   其中有幾個「各列算出來的數值不一樣」（o.average 時不算）
+   *   skipKeys / skipRows      （o.average）有幾個料號、共幾列因為排除條件不參與平均
+   *   onlySkipped              （o.average）有幾個料號在 ref 找得到、但每一列都被排除（算在 missing 裡）
+   *   rows 每一筆在 o.average 時多了 refRows（參與平均的列）、skipped（被排除幾列）、formula、onlySkipped
    */
   function planLookup(main, ref, o) {
     var headerEnd = o.dataStartRow - 1;
@@ -1123,6 +1131,7 @@
     var rows = [];
     var found = 0, missing = 0, blank = 0, errors = 0;
     var multiKeys = {}, diffKeys = {};
+    var skipKeys = {}, skipRows = 0, onlySkipKeys = {};
     // 要查的列：有給 o.rows（例如 Cutting、Dipping 兩段的資料列）就只查那些列；
     // 沒給就從資料開始的那一列查到最後一個料號（下面的匯總列不算資料）
     var rowList = o.rows;
@@ -1142,6 +1151,33 @@
       if (key === '') { blank++; continue; }
       var hits = index[key];
       var item = { row: r, key: key, label: displayText(cell), refRow: 0, value: null, error: null };
+      if (o.average) {
+        var used = [], skipped = 0;
+        (hits || []).forEach(function (hr) { if (isSkipRow(ref, hr, o)) skipped++; else used.push(hr); });
+        item.multi = used.length;
+        item.skipped = skipped;
+        if (skipped && !skipKeys[key]) { skipKeys[key] = true; skipRows += skipped; }
+        if (used.length) {
+          found++;
+          var parts = used.map(function (hr) { return lookupValue(ref, hr, o); });
+          var avg = averageResult(parts);
+          item.refRow = used[0];
+          item.refRows = used;
+          item.value = avg.value;
+          item.error = avg.error;
+          item.numFmt = 'General';
+          item.top = shortList(parts.map(function (p) { return p.top; }));
+          item.bottom = shortList(parts.map(function (p) { return p.bottom; }));
+          item.formula = averageFormula(ref.name, used, o);
+          if (avg.error) errors++;
+          if (used.length > 1) multiKeys[key] = true;
+        } else {
+          missing++;
+          if (skipped) { item.onlySkipped = true; onlySkipKeys[key] = true; }
+        }
+        rows.push(item);
+        continue;
+      }
       if (hits && hits.length) {
         found++;
         var first = lookupValue(ref, hits[0], o);
@@ -1177,8 +1213,41 @@
       blank: blank,
       errors: errors,
       multi: Object.keys(multiKeys).length,
-      multiDiff: Object.keys(diffKeys).length
+      multiDiff: Object.keys(diffKeys).length,
+      skipKeys: Object.keys(skipKeys).length,
+      skipRows: skipRows,
+      onlySkipped: Object.keys(onlySkipKeys).length
     };
+  }
+
+  // ref 第 r 列是不是要排除（o.refSkipCol 那一格等於 o.skipValues 其中一個；比對不分大小寫、全形半形）
+  function isSkipRow(ref, r, o) {
+    if (!o.refSkipCol || !o.skipValues || !o.skipValues.length) return false;
+    var row = ref.findRow(r);
+    var k = lookupKey(cellRawValue(row ? row.findCell(o.refSkipCol) : null));
+    if (k === '') return false;
+    return o.skipValues.some(function (v) { return lookupKey(v) === k; });
+  }
+
+  // 各列結果的平均；其中一列是錯誤（例如 #DIV/0!）時，整個平均就是那個錯誤（和 Excel 的 AVERAGE 一樣）
+  function averageResult(parts) {
+    var sum = 0;
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].error) return { value: null, error: parts[i].error };
+      sum += typeof parts[i].value === 'number' ? parts[i].value : 0;
+    }
+    return { value: sum / parts.length, error: null };
+  }
+
+  // 畫面上顯示多個值：最多列 4 個，其餘用「…」
+  function shortList(list) {
+    return list.slice(0, 4).join('、') + (list.length > 4 ? '…' : '');
+  }
+
+  // 平均的公式（不含開頭的 =）：只有一列就是那一列的公式，多列是 AVERAGE(各列公式)
+  function averageFormula(refName, refRows, o) {
+    if (refRows.length === 1) return lookupFormula(refName, refRows[0], o);
+    return 'AVERAGE(' + refRows.map(function (r) { return lookupFormula(refName, r, o); }).join(',') + ')';
   }
 
   // 某一列要填入的公式（不含開頭的 =），例如 'P003'!M5 或 'P003'!M5/'P003'!K5
@@ -1230,7 +1299,7 @@
         style.numFmt = item.numFmt || 'General';
         cell.style = style;
         cell.value = {
-          formula: lookupFormula(ref.name, item.refRow, o),
+          formula: item.formula || lookupFormula(ref.name, item.refRow, o),
           result: item.error ? { error: item.error }
             : (item.value === null || item.value === '' ? 0 : item.value)
         };
@@ -1269,6 +1338,7 @@
   /* ---------- Dipping_Milling：機台 CT.、目檢 CT. 兩行 ---------- */
 
   var CT_HEADERS = { machine: '機台 CT.', labor: '目檢 CT.', rate: '目檢-檢驗率' };
+  var CT_SKIP_VALUES = ['B1'];  // P003 的 GrC 是這些值的列，不參與平均
   var CT_FORMAT = '0.000';     // CT. 顯示到小數三位（儲存格裡仍是完整的數值）
   var RATE_FORMAT = '0.0%';    // 目檢-檢驗率顯示成 %
 
@@ -1285,9 +1355,10 @@
    * 先算出兩行 CT. 的查表結果，不動工作表。
    *   機台 CT. = P003 的 Machine ÷ Base Qty（o.refMachineCol ÷ o.refBaseCol）
    *   目檢 CT. = P003 的 Labor ÷ Base Qty（o.refLaborCol ÷ o.refBaseCol）
+   *   同一個料號在 P003 出現很多列時，各列先除 Base Qty 再取平均；GrC（o.refGrcCol）是 B1 的列不參與平均。
    * 兩行並排：機台 CT. 放在原本最後一行之後空一行，目檢 CT. 緊接在右邊；已經有同名表頭就覆蓋那一行。
    *
-   * o: { dataStartRow, keyCol, refKeyCol, refMachineCol, refLaborCol, refBaseCol,
+   * o: { dataStartRow, keyCol, refKeyCol, refMachineCol, refLaborCol, refBaseCol, refGrcCol,
    *      rows（可省略，預設是兩段的資料列）, index }
    * 回傳 { machine: planLookup 的結果, labor: planLookup 的結果, rows }
    */
@@ -1296,7 +1367,8 @@
       dataStartRow: o.dataStartRow, keyCol: o.keyCol, refKeyCol: o.refKeyCol,
       refValueCol: which === 'machine' ? o.refMachineCol : o.refLaborCol,
       refDivCol: o.refBaseCol,
-      header: CT_HEADERS[which], rows: o.rows, index: o.index, newCol: newCol, width: 11
+      header: CT_HEADERS[which], rows: o.rows, index: o.index, newCol: newCol, width: 11,
+      average: true, refSkipCol: o.refGrcCol || 0, skipValues: CT_SKIP_VALUES
     };
   }
   function planCtColumns(main, ref, o) {
@@ -1350,7 +1422,8 @@
     return plan;
   }
 
-  // 寫進工作表：每一列填公式，例如 ='P003'!N5/'P003'!K5（機台 CT.）、='P003'!M5/'P003'!K5（目檢 CT.）。
+  // 寫進工作表：每一列填公式，例如 ='P003'!N5/'P003'!K5（機台 CT.）、='P003'!M5/'P003'!K5（目檢 CT.）；
+  // 料號在 P003 有多列時是 =AVERAGE('P003'!N5/'P003'!K5,'P003'!N9/'P003'!K9)（GrC 是 B1 的列不算）。
   // 找不到的料號留空白、標淺紅色。
   function addCtColumns(main, ref, o) {
     var opts = Object.assign({}, o);
@@ -3493,7 +3566,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 26,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 27,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,

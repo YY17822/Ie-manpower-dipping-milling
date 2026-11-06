@@ -10,7 +10,9 @@
  *
  *   只填 Cutting、Dipping 兩段的料號列（第 1 步的標題、中間的空白列、第 2 步的 Total 列都跳過）。
  *   填入的是公式（例如 ='P003'!N5/'P003'!K5），之後在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。
- *   同一個料號在 P003 出現很多列時，取最上面那一列（和 VLOOKUP 一樣）。
+ *   同一個料號在 P003 出現很多列時，各列先除 Base Qty 再取平均，公式寫成
+ *   =AVERAGE('P003'!N5/'P003'!K5,'P003'!N9/'P003'!K9)；P003 的 GrC 是 B1 的列不參與平均。
+ *   全部的列 GrC 都是 B1 的料號，當作找不到。
  *   找不到的料號留空白，並標上淺紅色底。
  *
  *   來源有兩種：
@@ -37,8 +39,10 @@
   var MACHINE_HINTS = [/^machine$/i, /machine(?!\s*\/\s*pcs)/i, /machine/i];
   var LABOR_HINTS = [/^labor$/i, /labor(?!\s*\/\s*pcs)/i, /labor/i];
   var BASE_HINTS = [/base\s*qty|base\s*quantity|基準|基本數量/i];
+  var GRC_HINTS = [/^grc$/i, /grc/i];
+  var SKIP_TEXT = 'B1';                // GrC 是這個值的列不參與平均（實際比對在 excel-io.js 的 CT_SKIP_VALUES）
 
-  var DEFAULTS = { keyCol: '', refKeyCol: '', refMachineCol: '', refLaborCol: '', refBaseCol: '', startRow: '', cutRate: '', dipRate: '' };
+  var DEFAULTS = { keyCol: '', refKeyCol: '', refMachineCol: '', refLaborCol: '', refBaseCol: '', refGrcCol: '', startRow: '', cutRate: '', dipRate: '' };
   var RATES = [
     { key: 'cutting', label: 'Cutting', setting: 'cutRate' },
     { key: 'dipping', label: 'Dipping', setting: 'dipRate' }
@@ -145,6 +149,7 @@
     els.refMachineCol = h('select', { id: 'f3-refmachine', class: 'in-select' });
     els.refLaborCol = h('select', { id: 'f3-reflabor', class: 'in-select' });
     els.refBaseCol = h('select', { id: 'f3-refbase', class: 'in-select' });
+    els.refGrcCol = h('select', { id: 'f3-refgrc', class: 'in-select' });
     els.refPreview = h('div', { class: 'sheet-area' });
 
     els.rateInputs = {};
@@ -177,7 +182,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '帶入標準工時 CT.' }),
-      h('p', { text: '拿 MPS 的料號到 P003 找同一個料號，用那一列算出「機台 CT.」（Machine ÷ Base Qty）和「目檢 CT.」（Labor ÷ Base Qty），兩行並排放在 MPS 最後一行之後空一行的位置，右邊再加一行你輸入的「目檢-檢驗率」。只填 Cutting、Dipping 的料號列。CT. 填入的是公式，在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。' })));
+      h('p', { text: '拿 MPS 的料號到 P003 找同一個料號，算出「機台 CT.」（Machine ÷ Base Qty）和「目檢 CT.」（Labor ÷ Base Qty）；同一個料號有很多列時，各列先除 Base Qty 再取平均，GrC 是 ' + SKIP_TEXT + ' 的列不算。結果兩行並排放在 MPS 最後一行之後空一行的位置，右邊再加一行你輸入的「目檢-檢驗率」。只填 Cutting、Dipping 的料號列。CT. 填入的是公式，在 Excel 點儲存格就能看到數值是從 P003 哪兩格算出來的。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -195,13 +200,14 @@
           h('div', { class: 'field-row' },
             h('label', { for: 'f3-start', text: 'MPS 的資料從第' }), els.startRow, els.startNote))),
       h('li', { class: 'task' },
-        h('h2', { text: 'P003 的料號、Machine、Labor、Base Qty' }),
+        h('h2', { text: 'P003 的料號、Machine、Labor、Base Qty、GrC' }),
         h('div', { class: 'field-grid' },
           h('label', { for: 'f3-refkey', text: '料號在' }), els.refKeyCol,
           h('label', { for: 'f3-refmachine', text: 'Machine 在' }), els.refMachineCol,
           h('label', { for: 'f3-reflabor', text: 'Labor 在' }), els.refLaborCol,
-          h('label', { for: 'f3-refbase', text: 'Base Qty 在' }), els.refBaseCol),
-        h('p', { class: 'hint', text: '機台 CT. = Machine ÷ Base Qty，目檢 CT. = Labor ÷ Base Qty。P003 的 Machine、Labor 是做 Base Qty 個的工時，除過之後才是單件工時。' }),
+          h('label', { for: 'f3-refbase', text: 'Base Qty 在' }), els.refBaseCol,
+          h('label', { for: 'f3-refgrc', text: 'GrC 在' }), els.refGrcCol),
+        h('p', { class: 'hint', text: '機台 CT. = Machine ÷ Base Qty，目檢 CT. = Labor ÷ Base Qty。P003 的 Machine、Labor 是做 Base Qty 個的工時，除過之後才是單件工時。同一個料號在 P003 有很多列時，每一列先除自己的 Base Qty，再取平均；GrC 是 ' + SKIP_TEXT + ' 的列不參與平均。' }),
         els.refPreview),
       h('li', { class: 'task' },
         h('h2', { text: '目檢-檢驗率' }),
@@ -217,6 +223,7 @@
     bindSelect(els.refMachineCol, 'refMachineCol');
     bindSelect(els.refLaborCol, 'refLaborCol');
     bindSelect(els.refBaseCol, 'refBaseCol');
+    bindSelect(els.refGrcCol, 'refGrcCol');
     els.startRow.addEventListener('change', function () {
       settings.startRow = els.startRow.value;
       saveSettings();
@@ -374,12 +381,14 @@
     var refMachineCol = colOf(settings.refMachineCol, refCols) || guessColumn(refLabels, refCols, MACHINE_HINTS);
     var refLaborCol = colOf(settings.refLaborCol, refCols) || guessColumn(refLabels, refCols, LABOR_HINTS);
     var refBaseCol = colOf(settings.refBaseCol, refCols) || guessColumn(refLabels, refCols, BASE_HINTS);
+    var refGrcCol = colOf(settings.refGrcCol, refCols) || guessColumn(refLabels, refCols, GRC_HINTS);
 
     fillSelect(els.keyCol, mainLabels, mainCols, keyCol);
     fillSelect(els.refKeyCol, refLabels, refCols, refKeyCol);
     fillSelect(els.refMachineCol, refLabels, refCols, refMachineCol);
     fillSelect(els.refLaborCol, refLabels, refCols, refLaborCol);
     fillSelect(els.refBaseCol, refLabels, refCols, refBaseCol);
+    fillSelect(els.refGrcCol, refLabels, refCols, refGrcCol);
 
     var keepMain = {}; if (keyCol) keepMain[keyCol] = true;
     ui.renderSheet(els.mainPreview, work.main, {
@@ -387,7 +396,7 @@
       caption: work.main.name + ' 工作表（前 5 列）。'
     });
     var keepRef = {};
-    [refKeyCol, refMachineCol, refLaborCol, refBaseCol].forEach(function (c) { if (c) keepRef[c] = true; });
+    [refKeyCol, refMachineCol, refLaborCol, refBaseCol, refGrcCol].forEach(function (c) { if (c) keepRef[c] = true; });
     ui.renderSheet(els.refPreview, work.ref, {
       headerEnd: work.refHeaderRow, lastRow: work.refExt.lastRow, colCount: refCols, rows: 6, keep: keepRef,
       caption: work.ref.name + ' 工作表（前 6 列資料）。共 ' + work.refExt.lastRow.toLocaleString('en-US') + ' 列。'
@@ -398,9 +407,10 @@
     if (!refMachineCol) { setSummary('選擇 P003 的 Machine 在哪一行。'); return; }
     if (!refLaborCol) { setSummary('選擇 P003 的 Labor 在哪一行。'); return; }
     if (!refBaseCol) { setSummary('選擇 P003 的 Base Qty 在哪一行。'); return; }
-    var picks = [refMachineCol, refLaborCol, refBaseCol];
+    if (!refGrcCol) { setSummary('選擇 P003 的 GrC 在哪一行。'); return; }
+    var picks = [refKeyCol, refMachineCol, refLaborCol, refBaseCol, refGrcCol];
     if (picks.some(function (c, i) { return picks.indexOf(c) !== i; })) {
-      setSummary('Machine、Labor、Base Qty 有兩個選到同一行了。請確認三個各是哪一行。', true);
+      setSummary('P003 的料號、Machine、Labor、Base Qty、GrC 有兩個選到同一行了。請確認各是哪一行。', true);
       return;
     }
 
@@ -430,7 +440,7 @@
 
     var opts = {
       dataStartRow: sr, keyCol: keyCol, refKeyCol: refKeyCol,
-      refMachineCol: refMachineCol, refLaborCol: refLaborCol, refBaseCol: refBaseCol, rates: rates
+      refMachineCol: refMachineCol, refLaborCol: refLaborCol, refBaseCol: refBaseCol, refGrcCol: refGrcCol, rates: rates
     };
     var plans = XIO.planCtColumns(work.main, work.ref, Object.assign({ index: S.index, rows: rows }, opts));
     var plan = plans.machine;      // 料號、找到／找不到兩行都一樣，用機台 CT. 那一份統計
@@ -478,7 +488,7 @@
   }
 
   function clearChoices() {
-    [els.keyCol, els.refKeyCol, els.refMachineCol, els.refLaborCol, els.refBaseCol].forEach(function (sel) {
+    [els.keyCol, els.refKeyCol, els.refMachineCol, els.refLaborCol, els.refBaseCol, els.refGrcCol].forEach(function (sel) {
       sel.textContent = '';
       sel.appendChild(h('option', { value: '', text: '請選擇' }));
     });
@@ -506,22 +516,26 @@
 
   function renderNotes(plans) {
     var plan = plans.machine;
-    if (plan.missing) {
-      var miss = uniqueLabels(plan.rows, function (it) { return !it.refRow; });
+    var miss = uniqueLabels(plan.rows, function (it) { return !it.refRow && !it.onlySkipped; });
+    if (miss.length) {
       els.notes.appendChild(h('li', { class: 'is-warn' },
         'P003 找不到的料號：' + listText(miss, 12) + '。這些列的機台 CT.、目檢 CT. 會留空白，並標上淺紅色底。'));
     }
+    var onlySkip = uniqueLabels(plan.rows, function (it) { return it.onlySkipped; });
+    if (onlySkip.length) {
+      els.notes.appendChild(h('li', { class: 'is-warn' },
+        'P003 找得到、但每一列的 GrC 都是 ' + SKIP_TEXT + ' 的料號：' + listText(onlySkip, 12) + '。沒有可以平均的列，機台 CT.、目檢 CT. 會留空白，並標上淺紅色底。'));
+    }
     if (plan.multi) {
-      var diffKeys = {};
-      [plans.machine, plans.labor].forEach(function (p) {
-        p.rows.forEach(function (it) { if (it.differs) diffKeys[it.key] = it.label; });
-      });
-      var diff = Object.keys(diffKeys).map(function (k) { return diffKeys[k]; });
-      var text = '有 ' + plan.multi + ' 個料號在 P003 出現不只一列，一律取最上面那一列。';
-      text += diff.length
-        ? '其中 ' + diff.length + ' 個各列算出來的機台 CT. 或目檢 CT. 不一樣，請留意：' + listText(diff, 8) + '。'
-        : '這些料號各列算出來的機台 CT.、目檢 CT. 都相同，不影響結果。';
-      els.notes.appendChild(h('li', { class: diff.length ? 'is-warn' : null }, text));
+      els.notes.appendChild(h('li', null,
+        '有 ' + plan.multi + ' 個料號在 P003 有不只一列（不算 GrC 是 ' + SKIP_TEXT + ' 的），機台 CT.、目檢 CT. 取這些列的平均（每一列先除自己的 Base Qty）。'));
+    }
+    if (plan.skipKeys) {
+      var skipLabels = uniqueLabels(plan.rows, function (it) { return it.skipped > 0 && !it.onlySkipped; });
+      if (skipLabels.length) {
+        els.notes.appendChild(h('li', null,
+          '有 ' + skipLabels.length + ' 個料號在 P003 有 GrC 是 ' + SKIP_TEXT + ' 的列，那些列不參與平均：' + listText(skipLabels, 8) + '。'));
+      }
     }
     var errKeys = {};
     [plans.machine, plans.labor].forEach(function (p) {
@@ -562,7 +576,7 @@
     var lOpts = { refValueCol: opts.refLaborCol, refDivCol: opts.refBaseCol };
     function ctCell(it, o) {
       if (!it || !it.refRow) return h('td', { class: 'is-num is-kept' });
-      return h('td', { class: 'is-num is-kept', title: '=' + XIO.lookupFormula(refName, it.refRow, o) },
+      return h('td', { class: 'is-num is-kept', title: '=' + (it.formula || XIO.lookupFormula(refName, it.refRow, o)) },
         it.error ? it.error : showNumber(it.value));
     }
     plans.machine.rows.slice(0, SHOW).forEach(function (it, i) {
@@ -570,17 +584,21 @@
       body.appendChild(h('tr', { class: it.refRow ? null : 'is-missing' },
         h('th', { class: 'rowhead', scope: 'row', text: String(it.row) }),
         h('td', { text: it.label }),
-        h('td', { class: 'is-num', text: it.refRow ? String(it.refRow) + (it.multi > 1 ? '（共 ' + it.multi + ' 列）' : '') : '找不到' }),
+        h('td', { class: 'is-num', text: refRowText(it) }),
         h('td', { class: 'is-num', text: it.refRow ? it.top : '' }),
         h('td', { class: 'is-num', text: lab && lab.refRow ? lab.top : '' }),
         h('td', { class: 'is-num', text: it.refRow ? it.bottom : '' }),
         ctCell(it, mOpts),
         ctCell(lab, lOpts)));
     });
-    var first = plans.machine.rows.filter(function (it) { return it.refRow; })[0];
+    // 舉例的公式：有平均的料號優先（看得出 AVERAGE 的寫法）
+    var found = plans.machine.rows.filter(function (it) { return it.refRow; });
+    var first = found.filter(function (it) { return it.refRows && it.refRows.length > 1; })[0] || found[0];
     if (first) {
+      var firstLab = plans.labor.rows[plans.machine.rows.indexOf(first)];
       els.result.appendChild(h('p', { class: 'hint', text: '以第 ' + first.row + ' 列為例，填入的公式：機台 CT. =' +
-        XIO.lookupFormula(refName, first.refRow, mOpts) + '　目檢 CT. =' + XIO.lookupFormula(refName, first.refRow, lOpts) }));
+        (first.formula || XIO.lookupFormula(refName, first.refRow, mOpts)) + '　目檢 CT. =' +
+        ((firstLab && firstLab.formula) || XIO.lookupFormula(refName, first.refRow, lOpts)) }));
     }
     var total = plans.machine.rows.length;
     var more = total - SHOW;
@@ -590,6 +608,16 @@
     }));
     els.result.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': '對照結果' },
       h('table', { class: 'sheet is-result' }, h('thead', null, head), body)));
+  }
+
+  // 對照結果「P003 列」那一格：參與平均的列號，和被排除的 B1 列數
+  function refRowText(it) {
+    var skip = it.skipped ? '（' + SKIP_TEXT + ' ' + it.skipped + ' 列不算）' : '';
+    if (!it.refRow) return (it.onlySkipped ? '只有 ' + SKIP_TEXT : '找不到') + skip;
+    var list = it.refRows || [it.refRow];
+    var text = list.slice(0, 4).join('、') + (list.length > 4 ? '…' : '');
+    if (list.length > 1) text += '（平均 ' + list.length + ' 列）';
+    return text + skip;
   }
 
   /* ---------- 產生活頁簿 ---------- */

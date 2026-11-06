@@ -87,7 +87,7 @@ P003 工作表是整張照抄：值、格式、合併儲存格、行寬、列高
 
 ## 第 4 步：帶入標準工時 CT.
 
-拿 MPS 工作表的料號到 P003 工作表找同一個料號，用那一列算出兩個單件工時：
+拿 MPS 工作表的料號到 P003 工作表找同一個料號，算出兩個單件工時（同一個料號有很多列時取平均，見下面）：
 
 | 新增的行 | 算法（P003 的行） |
 | --- | --- |
@@ -98,7 +98,7 @@ P003 的 Machine、Labor 是做 Base Qty 個的工時（Base Qty 有 1 也有 10
 
 1. 第 3 步的 Excel：剛做完第 3 步的話會直接沿用；也可以上傳之前第 3 步匯出的檔案（要有 MPS 和 P003 兩個工作表）。
 2. 選 MPS 的料號在哪一行（預設第 1 行）。
-3. 選 P003 的料號、Machine、Labor、Base Qty 各在哪一行（程式會先依表頭文字帶入，請確認；P003 同時有 Machine 和 Machine/pcs 時會先選 Machine）。
+3. 選 P003 的料號、Machine、Labor、Base Qty、GrC 各在哪一行（程式會先依表頭文字帶入，請確認；P003 同時有 Machine 和 Machine/pcs 時會先選 Machine）。
 4. 輸入 Cutting、Dipping 各自的目檢-檢驗率（輸入 90 或 90% 都代表 90%，會記住上次的值）。
 5. 按「匯出 Excel」，得到 `…_含P003_CT.xlsx`。
 
@@ -108,8 +108,10 @@ P003 的 Machine、Labor 是做 Base Qty 個的工時（Base Qty 有 1 也有 10
 - 目檢-檢驗率是數值（不是公式）：Cutting 每一個料號都填 Cutting 的檢驗率，Dipping 每一個料號都填 Dipping 的；顯示成 %（例如 90.0%）。第 5 步的目檢需求工時會再乘上它。
 - 只填 Cutting、Dipping 兩段的料號列；第 1 步的標題、中間的空白列、第 2 步的 Total 列都不填。
 - 填入的是公式，例如機台 CT. `='P003'!N5/'P003'!K5`、目檢 CT. `='P003'!M5/'P003'!K5`；在 Excel 點儲存格就能看到是從 P003 哪兩格算出來的。
-- 同一個料號在 P003 出現很多列時，取最上面那一列（和 VLOOKUP 一樣）；各列算出來不一樣的料號，畫面上會列出來。
-- Base Qty 是空白或 0 的料號，Excel 會顯示 `#DIV/0!`，畫面上會列出是哪些料號。
+- 同一個料號在 P003 出現很多列時，**取平均**：每一列先除自己的 Base Qty，再把各列平均。公式寫成 `=AVERAGE('P003'!N5/'P003'!K5,'P003'!N9/'P003'!K9)`，在 Excel 點儲存格看得到用了哪幾列。
+- P003 的 **GrC 是 B1 的列不參與平均**（比對不分大小寫、全形半形）。排除之後只剩一列，就是那一列的公式；每一列都是 B1 的料號當作找不到（留空白、淺紅色底），畫面上會另外列出來。
+- 參與平均的列裡只要有一列 Base Qty 是空白或 0，整個平均會是 `#DIV/0!`（和 Excel 的 AVERAGE 一樣）。
+- 算出 `#DIV/0!` 或 `#VALUE!` 的料號，畫面上會列出是哪些料號。
 - P003 找不到的料號，兩行都留空白並標上淺紅色底，畫面上會列出是哪些料號。
 - 料號比對不分大小寫、會去掉頭尾空白；`0012` 和 `12` 視為不同。
 - 對已經有機台 CT.、目檢 CT.、目檢-檢驗率的檔案重做這一步，會覆蓋原本那三行，不會再多。
@@ -330,7 +332,7 @@ Dipping_Milling 存進資料庫的輸入項目：
 | `step1.cols`、`step1.startRow`、`step1.selCol`、`step1.pnCol` | 第 1 步：保留的行、資料起始列、篩選用的行、料號的行 |
 | `step2.startRow` | 第 2 步：資料起始列（報表版面不一樣時） |
 | `step2-5.monthCols` | 第 2、5 步共用：各月在哪幾行（`step2-5.wipCol` 是舊的 WIP 行，版本 24 起不再使用） |
-| `step4.keyCol`、`step4.refKeyCol`、`step4.refMachineCol`、`step4.refLaborCol`、`step4.refBaseCol`、`step4.startRow` | 第 4 步：MPS 料號、P003 料號／Machine／Labor／Base Qty 的行、資料起始列 |
+| `step4.keyCol`、`step4.refKeyCol`、`step4.refMachineCol`、`step4.refLaborCol`、`step4.refBaseCol`、`step4.refGrcCol`、`step4.startRow` | 第 4 步：MPS 料號、P003 料號／Machine／Labor／Base Qty／GrC 的行、資料起始列 |
 | `step4.cutRate`、`step4.dipRate` | 第 4 步：Cutting、Dipping 的目檢-檢驗率 |
 | `step5.startRow` | 第 5 步：資料起始列 |
 | `step6.rows`、`step6.lastFirstCol` | 第 6 步：各項目在人力報表第幾列、上次的當月行 |
