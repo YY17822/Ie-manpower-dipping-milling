@@ -48,6 +48,10 @@
  *     a. 剛才第 6 步做好的結果（不用先匯出，直接沿用）
  *     b. 上傳之前第 6 步匯出的檔案
  *
+ *   匯出的檔名：「YYMM_Dipping+Milling 人力需求預估.xlsx」，例如 2611_Dipping+Milling 人力需求預估.xlsx
+ *     MM 是首月（總表第一個月的表頭，第 5 步輸入的月份，例如 Nov → 11）；看不懂時用今天的月份
+ *     YY 是今天的年份後兩位；首月比今天的月份早超過半年時（例如 12 月做、首月是 Jan）算下一年
+ *
  * 做完之後把結果放在 IEApp.state.withReport（這是最後一步，之後要接新的步驟時可以直接拿來用）。
  */
 (function (global) {
@@ -64,7 +68,8 @@
   var R = XIO.DM_REPORT;
   var SHEET_NAME = R.sheet;
   var MONTH_TITLE = XIO.DEMAND_TITLES.machine;      // 月份從「機台需求工時」那一塊抓
-  var SUFFIX = '_總表';
+  var OUT_TITLE = 'Dipping+Milling 人力需求預估';   // 匯出檔名：YYMM_ 加上這個
+  var MONTH_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   var EXTRA = ['P003', '人力', SHEET_NAME, 'RMA人力需求'];
 
   var S = {
@@ -542,10 +547,14 @@
     }
     els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、現有人力 Milling、Dipping、總現有人力、人力需求差異、Loading Rate；加班天數之後再補上。'));
 
+    var out = outputName(refs);
+    els.notes.appendChild(h('li', { class: out.guessed ? 'is-warn' : null }, '匯出的檔名：' + out.name +
+      (out.guessed ? '（看不懂首月的表頭「' + (refs && refs[0] ? refs[0].text : '') + '」，月份先用今天的月份；請確認第 5 步的月份表頭）' : '')));
+
     var inputs = read.values;
     els.exportBtn.disabled = false;
     IEApp.state.withReport = {
-      outName: outputName(src),
+      outName: outputName(refs).name,
       mainSheet: work.main.name,
       dataStartRow: dataStartRow(src),
       reportSheet: SHEET_NAME,
@@ -602,10 +611,28 @@
     });
   }
 
-  function outputName(src) {
-    var stem = src.name.replace(/\.[^.]+$/, '');
-    if (stem.slice(-SUFFIX.length) === SUFFIX) stem = stem.slice(0, -SUFFIX.length);
-    return stem + SUFFIX + '.xlsx';
+  // 首月：總表第一個月的表頭文字（例如 Nov、November、11、11月、2026/11）→ { month, year }；看不懂回傳 month 0
+  function firstMonth(refs) {
+    var t = refs && refs[0] ? XIO.normalizeText(refs[0].text || '').trim().toLowerCase() : '';
+    var m = /^([a-z]{3})/.exec(t);
+    if (m && MONTH_ABBR.indexOf(m[1]) >= 0) return { month: MONTH_ABBR.indexOf(m[1]) + 1, year: 0 };
+    m = /^(\d{4})\s*[\/\-.年]\s*(\d{1,2})/.exec(t);
+    if (m && +m[2] >= 1 && +m[2] <= 12) return { month: +m[2], year: +m[1] };
+    m = /^(\d{1,2})\s*月?$/.exec(t);
+    if (m && +m[1] >= 1 && +m[1] <= 12) return { month: +m[1], year: 0 };
+    return { month: 0, year: 0 };
+  }
+
+  // 匯出的檔名：YYMM_Dipping+Milling 人力需求預估.xlsx（YY 年份後兩位、MM 首月）
+  function outputName(refs) {
+    var now = new Date();
+    var thisMonth = now.getMonth() + 1;
+    var fm = firstMonth(refs);
+    var month = fm.month || thisMonth;
+    var year = fm.year || now.getFullYear();
+    if (!fm.year && fm.month && fm.month < thisMonth - 6) year++;     // 例如 12 月做、首月是 1 月 → 下一年
+    function two(n) { return ('0' + (n % 100)).slice(-2); }
+    return { name: two(year) + two(month) + '_' + OUT_TITLE + '.xlsx', guessed: !fm.month };
   }
 
   /* ---------- 匯出 ---------- */
