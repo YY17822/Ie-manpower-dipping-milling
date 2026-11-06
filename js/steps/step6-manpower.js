@@ -1,26 +1,28 @@
 /*
- * 第 6 步：匯入人力報表
- *   把人力報表（未來六個月的人力預計）放進前面做好的 Excel，
- *   成為同一個檔案裡名為「人力」的工作表（整張照抄）。
+ * 第 6 步：匯入人力報表（Dipping_Milling 現有人力表）
+ *   把人力報表放進前面做好的 Excel，成為同一個檔案裡名為「人力」的工作表（整張照抄）。
  *
- *   匯入之後請使用者確認兩件事，之後做總表時才知道要去哪幾格抓資料：
- *     1. 這六個項目各在第幾列：
- *        Online、Online（生產）、Online（重工）、Off line（直接）、Off line（間接）、TTL（On + Off直接）
- *     2. 當月（第一個月）在哪一行。六個月就是從這一行開始往右連續六行。
+ *   人力報表的樣子（例如「Dipping / Milling 現有人力表」）：
+ *     一行是項目（操機、鏡檢、支援入…），旁邊是 Dipping、Milling 兩行的人數，再過去是「總現有人力」；
+ *     項目下面有一列 TTL（各行的合計）。只有一組人數（這個月的人數），總表六個月都用同一個值。
  *
- *   程式會先依列的文字猜各項目在哪一列，使用者核對、不對就改。
- *   當月在哪一行：選好的各列裡的數字剛好落在六個連續的行時才會自動帶入，否則要自己選
- *   （報表如果連過去的月份也列出來，程式沒辦法知道哪一行是當月）。
- *   六個項目都選好時，各項目的列會記在這台電腦的瀏覽器裡，下個月列的文字對不上時拿來當預設值。
+ *   匯入之後請使用者確認：
+ *     1. 項目、Dipping、Milling、總現有人力各在哪一行
+ *     2. 項目從第幾列到第幾列、TTL 在第幾列
+ *   程式會先依格子的文字猜（Dipping、Mill…、總現有人力、TTL），使用者核對、不對就改。
+ *   確認的位置會記住（共用設定 step6），下個月猜不到時拿來當預設值；第 7 步上傳第 6 步的檔案時也用它找資料。
+ *
+ *   之後總表：
+ *     現有人力 Milling   ='人力'!<Milling 行><TTL 列>（六個月相同），Notes 寫 Milling 各項目的人數，例如「操機 3 人、鏡檢 3 人」
+ *     現有人力 Dipping   同上，用 Dipping 那一行
  *
  *   來源有兩種：
  *     a. 剛才第 5 步做好的結果（不用先匯出，直接沿用）
  *     b. 上傳之前第 5 步匯出的檔案
  *
  * 做完之後把結果放在 IEApp.state.withManpower，下一步直接拿來用：
- *   rows           { online: 5, onlineProd: 6, … } 各項目在「人力」工作表的第幾列
- *   firstMonthCol  當月在第幾行（A=1）
- *   monthCount     6
+ *   manpowerSheet  '人力'
+ *   layout         { itemCol, dipCol, millCol, totalCol, firstItemRow, lastItemRow, ttlRow }（數字，A=1）
  */
 (function (global) {
   'use strict';
@@ -30,20 +32,21 @@
   var ui = IEApp.ui;
   var h = IEApp.h;
 
-  var SHEET_NAME = '人力';
+  var SHEET_NAME = XIO.DM_MANPOWER.sheet;    // '人力'
   var REF_SHEET = 'P003';
   var SUFFIX = '_人力';
-  var MONTHS = 6;
   var STORE_KEY = 'step6';             // 共用設定的組名（IEApp.settings）
   var MIN_PREVIEW_ROWS = 15;
   var MAX_PREVIEW_ROWS = 200;
-  var ITEMS = XIO.MANPOWER_ITEMS;
+  var COLS = XIO.DM_MANPOWER.cols;     // [{ key: 'itemCol', label: '項目' }, …]
+  var ROWS = XIO.DM_MANPOWER.rows;     // [{ key: 'firstItemRow', label: '項目從第' }, …]
+  var SIDES = XIO.DM_MANPOWER.sides;   // [{ key: 'milling', label: 'Milling', col: 'millCol' }, …]
 
   var S = {
     base: null,           // 上傳的第 5 步檔案 { name, buffer, sheets, hasManpower }
     preferUpload: false,
-    mp: null,             // 人力報表 { name, workbook, ws, ext, rows: [{ row, text, key }] }
-    pick: null            // 使用者確認的位置 { rows: { online: 5, … }, firstCol: 5 }（還沒選的是 0）
+    mp: null,             // 人力報表 { name, workbook, ws, ext, rows: [{ row, text }] }
+    pick: null            // 使用者確認的位置 { itemCol, dipCol, millCol, totalCol, firstItemRow, lastItemRow, ttlRow }（還沒選的是 0）
   };
   var settings = loadSettings();
   var els = {};
@@ -51,16 +54,16 @@
   function loadSettings() {
     var s = {};
     try { s = IEApp.settings.read(STORE_KEY) || {}; } catch (e) { s = {}; }
-    // lastFirstCol：上次確認的當月行，只給第 7 步（上傳第 6 步檔案時）用，這一步不拿來當預設值
-    return { rows: s.rows && typeof s.rows === 'object' ? s.rows : {}, lastFirstCol: parseInt(s.lastFirstCol, 10) || 0 };
+    return XIO.dmManpowerLayout(s);
   }
+  // 記住：行存成字母（B、C…），列存成數字
   function saveSettings() {
     if (!S.pick) return;
-    ITEMS.forEach(function (item) {
-      if (S.pick.rows[item.key]) settings.rows[item.key] = S.pick.rows[item.key];
-    });
-    if (S.pick.firstCol) settings.lastFirstCol = S.pick.firstCol;
-    try { IEApp.settings.write(STORE_KEY, settings); } catch (e) { /* 存不了就算了 */ }
+    var out = {};
+    COLS.forEach(function (x) { out[x.key] = S.pick[x.key] ? XIO.numToCol(S.pick[x.key]) : ''; });
+    ROWS.forEach(function (x) { out[x.key] = S.pick[x.key] || ''; });
+    settings = XIO.dmManpowerLayout(out);
+    try { IEApp.settings.write(STORE_KEY, out); } catch (e) { /* 存不了就算了 */ }
   }
 
   function sameName(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
@@ -83,7 +86,7 @@
 
   /* ---------- 畫面 ---------- */
   function render(panel) {
-    els = { rowSelects: {} };
+    els = { colSelects: {}, rowSelects: {} };
 
     els.baseInfo = h('p', { class: 'source-line', 'aria-live': 'polite' });
     els.baseDrop = ui.fileDrop({
@@ -110,19 +113,24 @@
       h('label', { for: 'f8-sheet', text: '工作表' }), els.sheetSelect);
     els.mpMsg = h('p', { class: 'msg is-error', role: 'alert', hidden: true });
 
-    var grid = h('div', { class: 'field-grid' });
-    ITEMS.forEach(function (item) {
-      var id = 'f8-row-' + item.key;
+    var colGrid = h('div', { class: 'field-grid' });
+    COLS.forEach(function (x) {
+      var id = 'f8-' + x.key;
       var sel = h('select', { id: id, class: 'in-select' });
-      sel.addEventListener('change', function () { onRowChange(item.key, sel.value); });
-      els.rowSelects[item.key] = sel;
-      grid.appendChild(h('label', { for: id, text: item.label }));
-      grid.appendChild(sel);
+      sel.addEventListener('change', function () { onPick(x.key, sel.value); });
+      els.colSelects[x.key] = sel;
+      colGrid.appendChild(h('label', { for: id, text: x.label + ' 在' }));
+      colGrid.appendChild(sel);
     });
-    els.colSelect = h('select', { id: 'f8-col', class: 'in-select' });
-    els.colSelect.addEventListener('change', onColChange);
-    grid.appendChild(h('label', { for: 'f8-col', text: '當月（第一個月）' }));
-    grid.appendChild(els.colSelect);
+    var rowGrid = h('div', { class: 'field-grid' });
+    ROWS.forEach(function (x) {
+      var id = 'f8-' + x.key;
+      var sel = h('select', { id: id, class: 'in-select' });
+      sel.addEventListener('change', function () { onPick(x.key, sel.value); });
+      els.rowSelects[x.key] = sel;
+      rowGrid.appendChild(h('label', { for: id, text: x.label }));
+      rowGrid.appendChild(sel);
+    });
 
     els.preview = h('div', { class: 'sheet-area' });
     els.check = h('div', { class: 'sheet-area' });
@@ -138,7 +146,7 @@
 
     panel.appendChild(h('div', { class: 'step-head' },
       h('h1', { text: '匯入人力報表' }),
-      h('p', { text: '把人力報表（未來六個月的人力預計）放進前面做好的 Excel，成為同一個檔案裡名為「人力」的工作表。匯入後確認各項目在哪一列、當月在哪一行，之後做總表時就照這些位置抓資料。' })));
+      h('p', { text: '把現有人力表放進前面做好的 Excel，成為同一個檔案裡名為「人力」的工作表。匯入後確認項目、Dipping、Milling、總現有人力各在哪一行，項目和 TTL 在哪幾列。總表的現有人力 Milling、Dipping 會抓該行的 TTL（六個月都用同一個值），Notes 寫各項目的人數。' })));
 
     panel.appendChild(h('ol', { class: 'tasks' },
       h('li', { class: 'task' },
@@ -150,9 +158,9 @@
         h('h2', { text: '上傳人力報表' }),
         els.mpDrop.el, els.sheetRow, els.mpMsg),
       h('li', { class: 'task' },
-        h('h2', { text: '確認各項目的位置' }),
-        h('p', { class: 'hint', text: '選每個項目在人力報表的第幾列，以及當月（第一個月）在哪一行；六個月是從當月那一行開始往右連續六行。程式會先依列的文字帶入，請對照下面的表格確認。' }),
-        grid, els.preview, els.check),
+        h('h2', { text: '確認各欄、各列的位置' }),
+        h('p', { class: 'hint', text: '程式會先依格子的文字帶入（Dipping、Milling、總現有人力、TTL），請對照下面的表格確認，不對就改。確認的位置會記住，下個月照樣用。' }),
+        colGrid, rowGrid, els.preview, els.check),
       h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
         els.summary, els.notes,
@@ -163,7 +171,6 @@
     });
 
     if (S.mp) showManpowerFile();
-    fillRowSelects();
     refresh();
   }
 
@@ -237,84 +244,65 @@
     els.sheetSelect.value = String(index);
     els.exportNote.textContent = '';
 
-    // 預設值：先依列的文字猜；猜不到的，上次選的那一列如果還有內容就先帶入
-    var guess = XIO.guessManpowerRows(mp.rows);
-    var known = {};
-    mp.rows.forEach(function (x) { known[x.row] = true; });
-    var rows = {};
-    ITEMS.forEach(function (item) {
-      var remembered = parseInt(settings.rows[item.key], 10);
-      rows[item.key] = guess[item.key] || (known[remembered] ? remembered : 0);
+    // 預設值：先依文字猜；猜不到的，用上次記住的位置（還在工作表範圍內才用）
+    var guess = XIO.guessDmManpower(mp.ws, mp.ext);
+    var pick = {};
+    COLS.forEach(function (x) {
+      var saved = settings[x.key];
+      pick[x.key] = guess[x.key] || (saved && saved <= mp.ext.colCount ? saved : 0);
     });
-    S.pick = { rows: rows, firstCol: 0 };
-    guessColumn();
-
-    fillRowSelects();
+    ROWS.forEach(function (x) {
+      var saved = settings[x.key];
+      pick[x.key] = guess[x.key] || (saved && saved <= mp.ext.lastRow ? saved : 0);
+    });
+    S.pick = pick;
     refresh();
-  }
-
-  // 當月在哪一行還沒選時，用已經選好的列試著猜（各列的數字合起來剛好六個連續的行時才猜得出來）
-  function guessColumn() {
-    if (!S.mp || !S.pick || S.pick.firstCol) return;
-    var rows = ITEMS.map(function (item) { return S.pick.rows[item.key]; }).filter(Boolean);
-    if (rows.length) S.pick.firstCol = XIO.guessFirstMonthCol(S.mp.ws, rows, S.mp.ext.colCount, MONTHS);
   }
 
   function shorten(text, max) {
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
   }
 
-  function fillRowSelects() {
-    ITEMS.forEach(function (item) {
-      var sel = els.rowSelects[item.key];
+  function fillSelects(labels) {
+    var ready = !!(S.mp && S.mp.ws);
+    COLS.forEach(function (x) {
+      var sel = els.colSelects[x.key];
       sel.textContent = '';
-      if (!S.mp || !S.mp.ws) {
-        sel.appendChild(h('option', { value: '', text: '先上傳人力報表' }));
-        sel.disabled = true;
-        return;
-      }
+      if (!ready) { sel.appendChild(h('option', { value: '', text: '先上傳人力報表' })); sel.disabled = true; return; }
       sel.disabled = false;
       sel.appendChild(h('option', { value: '', text: '請選擇' }));
-      S.mp.rows.forEach(function (x) {
+      for (var c = 1; c <= S.mp.ext.colCount; c++) {
         sel.appendChild(h('option', {
-          value: String(x.row),
-          text: '第 ' + x.row + ' 列　' + (x.text ? shorten(x.text, 40) : '（這一列沒有文字）')
+          value: String(c),
+          text: XIO.numToCol(c) + ' 行' + (labels[c] ? '　' + shorten(labels[c], 30) : '')
+        }));
+      }
+      sel.value = S.pick[x.key] ? String(S.pick[x.key]) : '';
+    });
+    ROWS.forEach(function (x) {
+      var sel = els.rowSelects[x.key];
+      sel.textContent = '';
+      if (!ready) { sel.appendChild(h('option', { value: '', text: '先上傳人力報表' })); sel.disabled = true; return; }
+      sel.disabled = false;
+      sel.appendChild(h('option', { value: '', text: '請選擇' }));
+      S.mp.rows.forEach(function (rr) {
+        sel.appendChild(h('option', {
+          value: String(rr.row),
+          text: '第 ' + rr.row + ' 列　' + (rr.text ? shorten(rr.text, 40) : '（這一列沒有文字）')
         }));
       });
-      sel.value = S.pick.rows[item.key] ? String(S.pick.rows[item.key]) : '';
+      // 選到的列如果不在清單裡（例如整列空白），也加進去
+      var v = S.pick[x.key];
+      if (v && !S.mp.rows.some(function (rr) { return rr.row === v; })) {
+        sel.appendChild(h('option', { value: String(v), text: '第 ' + v + ' 列　（空白）' }));
+      }
+      sel.value = v ? String(v) : '';
     });
   }
 
-  function fillColSelect(labels) {
-    var sel = els.colSelect;
-    sel.textContent = '';
-    if (!S.mp || !S.mp.ws) {
-      sel.appendChild(h('option', { value: '', text: '先上傳人力報表' }));
-      sel.disabled = true;
-      return;
-    }
-    sel.disabled = false;
-    sel.appendChild(h('option', { value: '', text: '請選擇' }));
-    for (var c = 1; c <= S.mp.ext.colCount; c++) {
-      sel.appendChild(h('option', {
-        value: String(c),
-        text: XIO.numToCol(c) + ' 行' + (labels[c] ? '　' + shorten(labels[c], 30) : '')
-      }));
-    }
-    sel.value = S.pick.firstCol ? String(S.pick.firstCol) : '';
-  }
-
-  function onRowChange(key, value) {
+  function onPick(key, value) {
     if (!S.pick) return;
-    S.pick.rows[key] = parseInt(value, 10) || 0;
-    guessColumn();
-    els.exportNote.textContent = '';
-    refresh();
-  }
-
-  function onColChange() {
-    if (!S.pick) return;
-    S.pick.firstCol = parseInt(els.colSelect.value, 10) || 0;
+    S.pick[key] = parseInt(value, 10) || 0;
     els.exportNote.textContent = '';
     refresh();
   }
@@ -350,34 +338,24 @@
     var hasSheet = !!(mp && mp.ws && mp.ext.lastRow);
     var pick = S.pick;
 
-    // 選好的列、六個月的行
-    var chosen = [];
-    var missing = [];
-    if (hasSheet) {
-      ITEMS.forEach(function (item) {
-        if (pick.rows[item.key]) chosen.push(pick.rows[item.key]); else missing.push(item.label);
-      });
-    }
-    var monthCols = [];
-    if (hasSheet && pick.firstCol) {
-      for (var i = 0; i < MONTHS; i++) monthCols.push(pick.firstCol + i);
-    }
-
-    // 每一行的表頭文字：從最上面那個項目的列往上找
+    // 每一行的表頭文字：從第一個項目的列往上找
     var labels = [];
     if (hasSheet) {
-      var topRow = chosen.length ? Math.min.apply(null, chosen) : (mp.rows.length ? mp.rows[0].row + 1 : 1);
-      labels = XIO.labelsAbove(mp.ws, topRow, Math.max(mp.ext.colCount, pick.firstCol + MONTHS - 1));
+      var topRow = pick.firstItemRow || pick.ttlRow || mp.ext.lastRow + 1;
+      labels = XIO.labelsAbove(mp.ws, topRow, mp.ext.colCount);
     }
-    fillColSelect(labels);
+    fillSelects(labels);
 
-    // 人力報表預覽：選到的列和六個月的行畫螢光
+    // 人力報表預覽：選到的行、項目列和 TTL 列畫螢光
     if (hasSheet) {
       var keep = {};
-      monthCols.forEach(function (c) { keep[c] = true; });
+      COLS.forEach(function (x) { if (pick[x.key]) keep[pick[x.key]] = true; });
       var keepRows = {};
-      chosen.forEach(function (r) { keepRows[r] = true; });
-      var show = Math.max(MIN_PREVIEW_ROWS, chosen.length ? Math.max.apply(null, chosen) + 2 : 0);
+      if (pick.firstItemRow && pick.lastItemRow) {
+        for (var r = pick.firstItemRow; r <= pick.lastItemRow; r++) keepRows[r] = true;
+      }
+      if (pick.ttlRow) keepRows[pick.ttlRow] = true;
+      var show = Math.max(MIN_PREVIEW_ROWS, (pick.ttlRow || pick.lastItemRow || 0) + 2);
       ui.renderSheet(els.preview, mp.ws, {
         headerEnd: 0,
         lastRow: mp.ext.lastRow,
@@ -386,53 +364,68 @@
         keep: keep,
         keepRows: keepRows,
         caption: '人力報表。共 ' + mp.ext.lastRow.toLocaleString('en-US') + ' 列、' + mp.ext.colCount +
-          ' 行。螢光的格子是之後總表要抓的資料。'
+          ' 行。螢光的是選到的行和列。'
       });
     }
 
-    // 核對表
-    var read = null;
-    if (hasSheet && monthCols.length && chosen.length) {
-      read = XIO.readManpower(mp.ws, pick.rows, pick.firstCol, MONTHS);
-      renderCheck(read, labels);
-    }
-
-    // 匯出
+    // 匯出前的檢查
     if (!src) { setSummary('先準備好第 5 步的 Excel。'); return; }
     if (!mp || !mp.ws) { setSummary('上傳人力報表。'); return; }
     if (!hasSheet) { setSummary('人力報表的這個工作表沒有資料。請確認檔案，或換一個工作表。', true); return; }
-    if (missing.length) { setSummary('還沒有選在哪一列：' + missing.join('、') + '。'); return; }
-    if (!pick.firstCol) { setSummary('還沒有選當月（第一個月）在哪一行。'); return; }
+    var missing = COLS.concat(ROWS).filter(function (x) { return !pick[x.key]; })
+      .map(function (x) { return x.name; });
+    if (missing.length) { setSummary('還沒有選：' + missing.join('、') + '。'); return; }
+    if (pick.firstItemRow > pick.lastItemRow) {
+      setSummary('項目的第一列（第 ' + pick.firstItemRow + ' 列）在最後一列（第 ' + pick.lastItemRow + ' 列）下面了，請確認。', true);
+      return;
+    }
+    if (pick.dipCol === pick.millCol) {
+      setSummary('Dipping 和 Milling 選到同一行了，請確認。', true);
+      return;
+    }
+
+    var read = XIO.readDmManpower(mp.ws, pick);
+    var have = XIO.dmHaveInfo(read, pick, SHEET_NAME);
+    renderCheck(read, have);
 
     // 注意事項
     var warn = false;
-    var byRow = {};
-    ITEMS.forEach(function (item) {
-      var r = pick.rows[item.key];
-      (byRow[r] = byRow[r] || []).push(item.label);
-    });
-    Object.keys(byRow).forEach(function (r) {
-      if (byRow[r].length < 2) return;
-      warn = true;
-      els.notes.appendChild(h('li', { class: 'is-warn' },
-        byRow[r].join('、') + ' 選了同一列（第 ' + r + ' 列），請確認。'));
-    });
-    if (read.bad) {
-      warn = true;
-      els.notes.appendChild(h('li', { class: 'is-warn' },
-        '有 ' + read.bad + ' 格不是數字（上面表格標成淺紅色）。請確認列和行有沒有選對。'));
+    function note(text, isWarn) {
+      if (isWarn) warn = true;
+      els.notes.appendChild(h('li', { class: isWarn ? 'is-warn' : null }, text));
     }
-    if (read.blank) {
-      warn = true;
-      els.notes.appendChild(h('li', { class: 'is-warn' },
-        '有 ' + read.blank + ' 格是空白（上面表格標成淺紅色）。空白之後會當成 0；如果不該是空白，請確認列和行有沒有選對。'));
+    COLS.forEach(function (x, i) {
+      COLS.slice(i + 1).forEach(function (y) {
+        if (pick[x.key] === pick[y.key]) note(x.label + ' 和 ' + y.label + ' 選了同一行（' + XIO.numToCol(pick[x.key]) + ' 行），請確認。', true);
+      });
+    });
+    if (pick.ttlRow >= pick.firstItemRow && pick.ttlRow <= pick.lastItemRow) {
+      note('TTL（第 ' + pick.ttlRow + ' 列）在項目的範圍裡，請確認項目到第幾列。', true);
+    }
+    if (!read.items.length) note('第 ' + pick.firstItemRow + ' 到 ' + pick.lastItemRow + ' 列沒有任何項目，Notes 會是空白。', true);
+    SIDES.forEach(function (sd) {
+      var t = read.ttl[sd.key];
+      var at = XIO.numToCol(pick[sd.col]) + pick.ttlRow;
+      if (t.blank) note(sd.label + ' 的 TTL（' + at + '）是空白，總表會當成 0。', true);
+      else if (t.bad) note(sd.label + ' 的 TTL（' + at + '）不是數字：「' + t.text + '」。', true);
+      else if (!near(read.sum[sd.key], t.number)) {
+        note(sd.label + ' 各項目合計 ' + fmt(read.sum[sd.key]) + ' 人，TTL 是 ' + fmt(t.number) + ' 人，對不起來。請確認項目的列有沒有選完整。', true);
+      }
+      var bad = read.items.filter(function (it) { return it[sd.key].bad; }).map(function (it) { return it.name; });
+      if (bad.length) note(sd.label + ' 有不是數字的格子：' + bad.join('、') + '，Notes 不會列出。', true);
+    });
+    var tot = read.ttl.total;
+    var both = (read.ttl.milling.number || 0) + (read.ttl.dipping.number || 0);
+    if (tot.blank || tot.bad) {
+      note('總現有人力的 TTL（' + XIO.numToCol(pick.totalCol) + pick.ttlRow + '）是空白或不是數字，請確認。', true);
+    } else if (!near(tot.number, both)) {
+      note('總現有人力 TTL 是 ' + fmt(tot.number) + ' 人，但 Milling + Dipping 是 ' + fmt(both) + ' 人，對不起來，請確認。', true);
     }
 
-    var firstL = XIO.numToCol(pick.firstCol);
-    var lastL = XIO.numToCol(pick.firstCol + MONTHS - 1);
     var replacing = src.kind === 'file' && S.base.hasManpower;
     var text = '匯出的檔案會多一個「' + SHEET_NAME + '」工作表（' + mp.ext.lastRow.toLocaleString('en-US') + ' 列、' +
-      mp.ext.colCount + ' 行）。當月是 ' + firstL + ' 行，六個月是 ' + firstL + ' 到 ' + lastL + ' 行。';
+      mp.ext.colCount + ' 行）。總表的現有人力 Milling 會抓 =' + have.milling.formula + '（' + fmt(have.milling.value) + ' 人）、' +
+      'Dipping 抓 =' + have.dipping.formula + '（' + fmt(have.dipping.value) + ' 人），六個月都用同一個值。';
     if (replacing) text += ' 檔案裡原本的「' + SHEET_NAME + '」工作表會換成這次上傳的。';
     setSummary(text, false, warn || replacing);
     els.exportBtn.disabled = false;
@@ -442,8 +435,8 @@
       ? [prev.mainSheet, REF_SHEET]
       : S.base.sheets.filter(function (n) { return !sameName(n, SHEET_NAME); });
     sheets = sheets.concat([SHEET_NAME]);
-    var rowsCopy = {};
-    ITEMS.forEach(function (item) { rowsCopy[item.key] = pick.rows[item.key]; });
+    var layout = {};
+    COLS.concat(ROWS).forEach(function (x) { layout[x.key] = pick[x.key]; });
     var sheet = mp.ws;
     IEApp.state.withManpower = {
       outName: outputName(src),
@@ -452,56 +445,61 @@
       dataStartRow: src.kind === 'prev' ? prev.dataStartRow : 0,
       keyCol: src.kind === 'prev' && prev.keyCol ? prev.keyCol : 1,
       manpowerSheet: SHEET_NAME,
-      rows: rowsCopy,
-      firstMonthCol: pick.firstCol,
-      monthCount: MONTHS,
+      layout: layout,
       build: function () { return buildWorkbook(src, sheet); }
     };
-    saveSettings();       // 六個項目都選好了，記下來給下個月當預設值
+    saveSettings();       // 全部選好了，記下來給下個月和第 7 步用
     els.nextBtn.disabled = false;
   }
+
+  function near(a, b) { return Math.abs((a || 0) - (b || 0)) < 1e-9; }
+  function fmt(v) { return typeof v === 'number' && !isNaN(v) ? String(Math.round(v * 1e6) / 1e6) : '0'; }
 
   function setSummary(text, isError, isWarn) {
     els.summary.textContent = text;
     els.summary.className = 'summary' + (isError ? ' is-error' : '') + (isWarn ? ' is-warn' : '');
   }
 
-  // 核對表：六個項目 × 六個月，照選的列和行從人力報表讀出來的數值
-  function renderCheck(read, labels) {
+  // 核對表：每個項目一列（Milling、Dipping 的人數），最後是 TTL；下面寫總表會填的公式和 Notes
+  function renderCheck(read, have) {
     var pick = S.pick;
-    var head = h('tr', null,
-      h('th', { class: 'colhead', scope: 'col', text: '項目' }),
-      h('th', { class: 'colhead', scope: 'col', text: '列' }));
-    read.cols.forEach(function (c, i) {
-      head.appendChild(h('th', { class: 'colhead', scope: 'col',
-        text: XIO.numToCol(c) + (labels[c] ? '　' + labels[c] : '') + (i === 0 ? '（當月）' : '') }));
-    });
-
-    var body = h('tbody');
-    var example = '';
-    ITEMS.forEach(function (item) {
-      var r = pick.rows[item.key];
-      var tr = h('tr', null,
-        h('th', { class: 'rowhead', scope: 'row', text: item.label }),
-        h('td', { text: r ? '第 ' + r + ' 列' : '還沒選' }));
-      read.values[item.key].forEach(function (info) {
-        var off = !r || info.blank || info.bad;
-        tr.appendChild(h('td', {
-          class: (off ? 'is-missing' : 'is-num'),
-          text: !r ? '' : info.blank ? '（空白）' : info.text
-        }));
-      });
-      body.appendChild(tr);
-      if (r && !example) example = "='" + SHEET_NAME + "'!" + XIO.numToCol(read.cols[0]) + r;
-    });
-
-    els.check.appendChild(h('p', { class: 'sheet-caption', text: '照上面選的位置，之後總表會抓到的數值：' }));
-    els.check.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': '各項目六個月的人力' },
-      h('table', { class: 'sheet is-result is-check' }, h('thead', null, head), body)));
-    if (example) {
-      els.check.appendChild(h('p', { class: 'hint',
-        text: '之後總表會用公式抓這些格子，例如 ' + example + '，點儲存格就能看到是從人力報表哪一格來的。' }));
+    function colHead(text, c) {
+      return h('th', { class: 'colhead', scope: 'col', text: text + (c ? '（' + XIO.numToCol(c) + ' 行）' : '') });
     }
+    function numCell(info) {
+      return h('td', { class: info.bad ? 'is-missing' : 'is-num', text: info.blank ? '' : info.text });
+    }
+    function ttlCell(info) {
+      var off = info.blank || info.bad;
+      return h('td', { class: (off ? 'is-missing' : 'is-num') + ' is-kept', text: info.blank ? '（空白）' : info.text });
+    }
+    var head = h('tr', null,
+      h('th', { class: 'colhead', scope: 'col', text: '列' }),
+      colHead('項目', pick.itemCol),
+      colHead('Milling', pick.millCol),
+      colHead('Dipping', pick.dipCol),
+      colHead('總現有人力', pick.totalCol));
+    var body = h('tbody');
+    read.items.forEach(function (it) {
+      body.appendChild(h('tr', null,
+        h('th', { class: 'rowhead', scope: 'row', text: String(it.row) }),
+        h('td', { text: it.name }),
+        numCell(it.milling), numCell(it.dipping), h('td')));
+    });
+    var t = read.ttl;
+    body.appendChild(h('tr', null,
+      h('th', { class: 'rowhead', scope: 'row', text: String(pick.ttlRow) }),
+      h('td', { text: 'TTL' }),
+      ttlCell(t.milling), ttlCell(t.dipping), ttlCell(t.total)));
+
+    els.check.appendChild(h('p', { class: 'sheet-caption', text: '照上面選的位置讀到的人數（螢光是 TTL）：' }));
+    els.check.appendChild(h('div', { class: 'sheet-scroll', tabindex: '0', role: 'group', 'aria-label': '現有人力' },
+      h('table', { class: 'sheet is-result is-check' }, h('thead', null, head), body)));
+    SIDES.forEach(function (sd) {
+      var x = have[sd.key];
+      els.check.appendChild(h('p', { class: 'hint',
+        text: '總表 現有人力 ' + sd.label + '：=' + x.formula + '（六個月相同）　Notes：' + (x.note || '（沒有人數，留空白）') }));
+    });
   }
 
   /* ---------- 產生活頁簿 ---------- */

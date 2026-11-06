@@ -146,22 +146,22 @@ P003 的 Machine、Labor 是做 Base Qty 個的工時（Base Qty 有 1 也有 10
 
 ## 第 6 步：匯入人力報表
 
-把人力報表（未來六個月的人力預計）放進前面做好的 Excel，成為同一個檔案裡名為 `人力` 的工作表，
-並確認之後總表要抓的資料在哪裡。
+把現有人力表（例如「Dipping / Milling 現有人力表」）放進前面做好的 Excel，成為同一個檔案裡名為 `人力` 的工作表，
+並確認之後總表要抓的資料在哪裡。人力表只有一組人數（這個月的人數），總表六個月都用同一個值。
+
+人力表的樣子：一行是項目（操機、鏡檢、支援入…），旁邊 Dipping、Milling 各一行人數，再過去是總現有人力；項目下面有一列 TTL。
 
 1. 第 5 步的 Excel：剛做完第 5 步的話會直接沿用；也可以上傳之前第 5 步匯出的檔案。
 2. 上傳人力報表（`.xlsx`）。檔案裡有多個工作表時可以選要用哪一個（有叫「人力」的會先選它）。
-3. 確認六個項目各在第幾列：Online、Online（生產）、Online（重工）、Off line（直接）、Off line（間接）、TTL（On + Off直接）；
-   以及當月（第一個月）在哪一行。六個月是從當月那一行開始往右連續六行。
+3. 確認位置：項目、Dipping、Milling、總現有人力各在哪一行；項目從第幾列到第幾列；TTL 在第幾列。
 4. 按「匯出 Excel」，得到 `…_需求工時_人力.xlsx`。
 
-- 選單裡每一列會顯示「第 N 列　這一列的文字」。程式會先依文字帶入（例如有 `Online` 和 `生產` 的那一列就是 Online（生產）），請對照預覽確認，不對就改。
-- 當月那一行：選好的各列裡的數字剛好落在六個連續的行時才會自動帶入；報表連過去的月份也列出來時，程式不知道哪一行是當月，要自己選。
-- 預覽表格裡螢光的格子，就是之後總表要抓的資料；下面的核對表列出六個項目 × 六個月讀到的數值，空白或不是數字的格子標成淺紅色。
-- 兩個項目選了同一列、或有空白的格子，會提醒但不擋匯出；六個項目和當月都要選好才能匯出。
-- 六個項目都選好時，各項目的列會記在這台電腦的瀏覽器裡；下個月列的文字對不上時，就用記住的列當預設值。
-- `人力` 工作表是整張照抄（值、格式、合併儲存格、行寬、列高），公式換成數值。上傳的檔案裡如果已經有 `人力` 工作表，會換成這次上傳的。
-- 確認的位置放在 `IEApp.state.withManpower`（`rows`：各項目的列號，`firstMonthCol`：當月的行號，`monthCount`：6），給之後的總表用。
+- 程式會先依格子的文字帶入：有 `Dipping` 的是 Dipping 行、有 `Mill`（`Milling`、`Millinng` 都算）的是 Milling 行（標題同時有兩個字的不算）、有「總」和「人力」的是總現有人力行；寫 `TTL` 的那一格決定 TTL 列和項目行；項目是表頭和 TTL 之間、項目行有文字的列。請對照預覽確認，不對就改。
+- 預覽表格裡螢光的是選到的行和列；下面的核對表列出各項目和 TTL 的 Milling、Dipping、總現有人力人數，以及總表會填的公式和 Notes。
+- 提醒（不擋匯出）：各項目合計和 TTL 對不起來、總現有人力 TTL 不等於 Milling + Dipping、TTL 空白或不是數字、兩個欄位選到同一行。
+- 確認的位置會記住（`step6`），下個月猜不到時拿來當預設值；第 7 步上傳第 6 步的檔案時也用它找資料。
+- `人力` 工作表是整張照抄（值、格式、合併儲存格、行寬、列高），公式換成數值，所以第 7 步抓的位置和原本的表一樣。上傳的檔案裡如果已經有 `人力` 工作表，會換成這次上傳的。
+- 確認的位置放在 `IEApp.state.withManpower.layout`（`itemCol`、`dipCol`、`millCol`、`totalCol`、`firstItemRow`、`lastItemRow`、`ttlRow`），給之後的總表用。
 
 ## 第 7 步：總表
 
@@ -219,9 +219,12 @@ Milling站（第 11–14、16 列）、Dipping站（第 17–20、22 列），�
 | 總表的列 | 填入 | 例子 |
 | --- | --- | --- |
 | 總需求人力（第 29 列） | 需求顧機人數 - Milling + 需求顧機人數 - dipping + 需求人數 - 目檢 | `=E16+E22+E28` |
+| 現有人力 Milling（第 30 列） | 參照 `人力` 工作表 Milling 行的 TTL 列，六個月相同；Notes 寫 Milling 各項目的人數（空白、0 不列） | `='人力'!D12`，Notes「操機 3 人、鏡檢 3 人」 |
+| 現有人力 Dipping（第 31 列） | 同上，用 Dipping 行 | `='人力'!C12`，Notes「操機 5 人、鏡檢 4 人」 |
 | 總現有人力（第 32 列） | 現有人力 Milling + Dipping | `=E30+E31` |
 | 人力需求差異（第 33 列） | 總現有人力 − 總需求人力 | `=E32-E29` |
 
+- 現有人力的位置用第 6 步確認的：剛做完第 6 步就沿用；上傳第 6 步的檔案時用第 6 步記住的設定（`step6`）。檔案裡沒有 `人力` 工作表、或第 6 步還沒確認過位置時，這兩列留空白，畫面會提醒。
 - 沒有第 5 步的 Total 列時，機台需求工時、目檢站需求工時改成直接加總該段，例如 `=SUM('MPS'!P6:P8)`。
 - 加班天數 - Milling（第 15 列）、加班天數 - Dipping（第 21 列）還沒填時 Excel 當成 0 算；工作天數或機台每日可動工時沒填時，開機數會顯示 `#DIV/0!`。
 - 兩站的機台數、人員數會記在這台電腦的瀏覽器裡。
@@ -335,7 +338,8 @@ Dipping_Milling 存進資料庫的輸入項目：
 | `step4.keyCol`、`step4.refKeyCol`、`step4.refMachineCol`、`step4.refLaborCol`、`step4.refBaseCol`、`step4.refGrcCol`、`step4.startRow` | 第 4 步：MPS 料號、P003 料號／Machine／Labor／Base Qty／GrC 的行、資料起始列 |
 | `step4.cutRate`、`step4.dipRate` | 第 4 步：Cutting、Dipping 的目檢-檢驗率 |
 | `step5.startRow` | 第 5 步：資料起始列 |
-| `step6.rows`、`step6.lastFirstCol` | 第 6 步：各項目在人力報表第幾列、上次的當月行 |
+| `step6.itemCol`、`step6.dipCol`、`step6.millCol`、`step6.totalCol` | 第 6 步：人力表的項目、Dipping、Milling、總現有人力在哪一行（字母） |
+| `step6.firstItemRow`、`step6.lastItemRow`、`step6.ttlRow` | 第 6 步：項目從第幾列到第幾列、TTL 在第幾列（`step6.rows`、`step6.lastFirstCol` 是舊格式，版本 28 起不再使用） |
 | `step7.workHours`、`step7.restHours` | 第 7 步：工作時數、休息時數 |
 | `step7.machineHours`、`step7.shifts`、`step7.attendance`、`step7.efficiency` | 第 7 步：機台每日可動工時、班別、出勤率、綜合效率，各 6 個月 |
 | `step7.millMachines`、`step7.millPeople`、`step7.dipMachines`、`step7.dipPeople` | 第 7 步：Milling、Dipping 站的機台數和人數 |

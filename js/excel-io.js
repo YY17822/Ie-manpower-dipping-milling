@@ -2554,6 +2554,137 @@
     return out;
   }
 
+  /* ---------- Dipping_Milling 現有人力表（第 6 步匯入、第 7 步總表抓 TTL） ---------- */
+
+  // 人力報表的格式：一行是項目，Dipping、Milling、總現有人力各一行；項目下面有 TTL 列。只有一組人數（這個月）。
+  var DM_MANPOWER = {
+    sheet: '人力',
+    cols: [
+      { key: 'itemCol', label: '項目', name: '項目在哪一行' },
+      { key: 'dipCol', label: 'Dipping', name: 'Dipping 在哪一行' },
+      { key: 'millCol', label: 'Milling', name: 'Milling 在哪一行' },
+      { key: 'totalCol', label: '總現有人力', name: '總現有人力在哪一行' }
+    ],
+    rows: [
+      { key: 'firstItemRow', label: '項目從', name: '項目從第幾列' },
+      { key: 'lastItemRow', label: '項目到', name: '項目到第幾列' },
+      { key: 'ttlRow', label: 'TTL 在', name: 'TTL 在第幾列' }
+    ],
+    sides: [
+      { key: 'milling', label: 'Milling', col: 'millCol' },
+      { key: 'dipping', label: 'Dipping', col: 'dipCol' }
+    ]
+  };
+
+  // 記住的設定 → 位置（數字）。行可以是字母（B）或數字，列是數字；看不懂的是 0
+  function dmManpowerLayout(saved) {
+    var s = saved || {};
+    var out = {};
+    DM_MANPOWER.cols.forEach(function (x) {
+      var v = s[x.key];
+      var n = typeof v === 'number' ? v : (/^\s*\d+\s*$/.test(String(v || '')) ? parseInt(v, 10) : (String(v || '').trim() ? colToNum(String(v).trim().toUpperCase()) : 0));
+      out[x.key] = n > 0 ? n : 0;
+    });
+    DM_MANPOWER.rows.forEach(function (x) {
+      var n = parseInt(s[x.key], 10);
+      out[x.key] = n > 0 ? n : 0;
+    });
+    return out;
+  }
+
+  // 依格子的文字猜位置：Dipping、Mill…（標題同時有兩個字的不算）、總現有人力、TTL（項目那一行就是 TTL 所在的行）
+  function guessDmManpower(ws, ext) {
+    var out = { itemCol: 0, dipCol: 0, millCol: 0, totalCol: 0, firstItemRow: 0, lastItemRow: 0, ttlRow: 0 };
+    var headerRow = 0;
+    var ttls = [];
+    var maxRow = Math.min(ext.lastRow, 100);
+    for (var r = 1; r <= maxRow; r++) {
+      var row = ws.findRow(r);
+      if (!row) continue;
+      for (var c = 1; c <= ext.colCount; c++) {
+        var cell = row.findCell(c);
+        if (!cell || (cell.isMerged && cell.master !== cell)) continue;
+        var v = plainValue(cellRawValue(cell));
+        if (typeof v !== 'string') continue;
+        var k = labelKey(v);
+        if (!k) continue;
+        var dip = k.indexOf('dip') >= 0, mill = k.indexOf('mill') >= 0;
+        if (dip && !mill && !out.dipCol) { out.dipCol = c; headerRow = headerRow || r; }
+        else if (mill && !dip && !out.millCol) { out.millCol = c; headerRow = headerRow || r; }
+        else if (!dip && !mill && !out.totalCol && k.indexOf('總') >= 0 && k.indexOf('人力') >= 0) out.totalCol = c;
+        if (k === 'ttl' || (k.indexOf('ttl') === 0 && k.length <= 12)) ttls.push({ r: r, c: c });
+      }
+    }
+    var left = Math.min(out.dipCol || 9999, out.millCol || 9999);
+    var ttl = ttls.filter(function (x) { return x.c < left && x.r > headerRow; })[0] || ttls[0];
+    if (ttl) { out.ttlRow = ttl.r; out.itemCol = ttl.c; }
+    if (out.itemCol && out.ttlRow) {
+      for (var rr = (headerRow || 0) + 1; rr < out.ttlRow; rr++) {
+        var ic = ws.findCell(rr, out.itemCol);
+        var t = ic ? normalizeText(displayText(ic)) : '';
+        if (!t) continue;
+        if (!out.firstItemRow) out.firstItemRow = rr;
+        out.lastItemRow = rr;
+      }
+    }
+    return out;
+  }
+
+  function dmCellInfo(ws, r, c) {
+    var cell = c ? ws.findCell(r, c) : null;
+    var n = toNumber(cellRawValue(cell));
+    return { text: cell ? displayText(cell) : '', number: n, blank: n === null, bad: n !== null && isNaN(n) };
+  }
+
+  /*
+   * 照位置讀出人數。
+   * 回傳 {
+   *   items: [{ row, name, milling: info, dipping: info }]   項目名稱和數字都空白的列不算
+   *   ttl:   { milling: info, dipping: info, total: info }
+   *   sum:   { milling: 各項目合計, dipping: … }
+   * }   info = { text, number, blank, bad }
+   */
+  function readDmManpower(ws, L) {
+    var out = { items: [], ttl: {}, sum: { milling: 0, dipping: 0 } };
+    for (var r = L.firstItemRow; r <= L.lastItemRow; r++) {
+      var nameCell = ws.findCell(r, L.itemCol);
+      var name = nameCell ? normalizeText(displayText(nameCell)).replace(/\s+/g, ' ').trim() : '';
+      var it = { row: r, name: name, milling: dmCellInfo(ws, r, L.millCol), dipping: dmCellInfo(ws, r, L.dipCol) };
+      if (!name && it.milling.blank && it.dipping.blank) continue;
+      if (!name) it.name = '第 ' + r + ' 列';
+      DM_MANPOWER.sides.forEach(function (sd) {
+        var n = it[sd.key].number;
+        if (typeof n === 'number' && !isNaN(n)) out.sum[sd.key] += n;
+      });
+      out.items.push(it);
+    }
+    out.ttl.milling = dmCellInfo(ws, L.ttlRow, L.millCol);
+    out.ttl.dipping = dmCellInfo(ws, L.ttlRow, L.dipCol);
+    out.ttl.total = dmCellInfo(ws, L.ttlRow, L.totalCol);
+    return out;
+  }
+
+  // 總表 現有人力 Milling、Dipping 要填的內容：公式參照人力工作表該行的 TTL；Notes 寫各項目的人數（空白、0 不列）
+  function dmHaveInfo(read, L, sheetName) {
+    var out = {};
+    DM_MANPOWER.sides.forEach(function (sd) {
+      var t = read.ttl[sd.key];
+      var parts = read.items.filter(function (it) {
+        var n = it[sd.key].number;
+        return typeof n === 'number' && !isNaN(n) && n !== 0;
+      }).map(function (it) {
+        return it.name + ' ' + String(Math.round(it[sd.key].number * 1e6) / 1e6) + ' 人';
+      });
+      out[sd.key] = {
+        sheet: sheetName, col: L[sd.col], row: L.ttlRow,
+        formula: sheetRef(sheetName) + numToCol(L[sd.col]) + L.ttlRow,
+        value: typeof t.number === 'number' && !isNaN(t.number) ? t.number : 0,
+        note: parts.join('、')
+      };
+    });
+    return out;
+  }
+
   /* ---------- 總表：先建立表格的樣式和框線，內容之後再填 ---------- */
 
   var REPORT_SHEET = '總表';
@@ -3506,6 +3637,18 @@
       put('gap', m, { formula: addr('haveTotal', m) + '-' + addr('needTotal', m) }, '0.0');
     }
 
+    // 現有人力 Milling、Dipping：參照「人力」工作表該行的 TTL 列（只有一組人數，六個月都一樣），
+    // Notes 寫各項目的人數，例如「操機 3 人、鏡檢 3 人」（由 dmHaveInfo() 算好傳進來）
+    var have = (o && o.have) || {};
+    [['milling', 'haveMilling'], ['dipping', 'haveDipping']].forEach(function (p) {
+      var x = have[p[0]];
+      if (!x || !x.col || !x.row) return;
+      for (var mm = 0; mm < R.months; mm++) {
+        put(p[1], mm, { formula: sheetRef(x.sheet) + numToCol(x.col) + x.row, result: isN(x.value) ? x.value : 0 }, '0.0');
+      }
+      if (x.note) ws.getCell(rows[p[1]], R.noteCol).value = x.note;
+    });
+
     // 列印：橫向、一頁寬
     Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
 
@@ -3566,7 +3709,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 27,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 28,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -3613,6 +3756,11 @@
     planRma: planRma,
     addRmaRows: addRmaRows,
     MANPOWER_ITEMS: MANPOWER_ITEMS,
+    DM_MANPOWER: DM_MANPOWER,
+    dmManpowerLayout: dmManpowerLayout,
+    guessDmManpower: guessDmManpower,
+    readDmManpower: readDmManpower,
+    dmHaveInfo: dmHaveInfo,
     manpowerRows: manpowerRows,
     guessManpowerRows: guessManpowerRows,
     guessFirstMonthCol: guessFirstMonthCol,

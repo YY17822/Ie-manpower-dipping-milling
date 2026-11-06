@@ -20,7 +20,10 @@
  *       =ROUNDUP(需求工時/工作時間/工作班別數/(工作天數+加班天數 - 目檢)/出勤率/作業效率,1)
  *     需求人數 - 目檢   =ROUNDUP(需求人力 - Milling*工作班別數+需求人力 - Dipping*工作班別數,1)
  *     總需求人力       =需求顧機人數 - Milling+需求顧機人數 - dipping+需求人數 - 目檢
- *     總現有人力       =現有人力 Milling+Dipping（現有人力兩列之後再補上）
+ *     現有人力 Milling、Dipping   公式：參照「人力」工作表（第 6 步）該行的 TTL 列，例如 ='人力'!D12，六個月相同；
+ *                                 Notes 寫各項目的人數，例如「操機 3 人、鏡檢 3 人」。
+ *                                 位置用第 6 步確認的（剛做完第 6 步就沿用；上傳的檔案用第 6 步記住的設定 step6）
+ *     總現有人力       =現有人力 Milling+Dipping
  *     人力需求差異     =總現有人力-總需求人力
  *   其他格的內容（公式）之後再一項一項補上。
  *
@@ -55,6 +58,8 @@
   var h = IEApp.h;
 
   var STEP1_KEY = 'step1';
+  var STEP6_KEY = 'step6';             // 第 6 步記住的人力工作表位置
+  var MANPOWER_SHEET = XIO.DM_MANPOWER.sheet;
   var R = XIO.DM_REPORT;
   var SHEET_NAME = R.sheet;
   var MONTH_TITLE = XIO.DEMAND_TITLES.machine;      // 月份從「機台需求工時」那一塊抓
@@ -259,6 +264,27 @@
     return XIO.dmBlockTotalFormulas(main, { headerEnd: dataStartRow(src) - 1, title: MONTH_TITLE, months: R.months });
   }
 
+  // 現有人力：人力工作表裡 Milling、Dipping 的 TTL 和各項目人數（位置用第 6 步確認的）
+  // 回傳 { have: dmHaveInfo 的結果 } 或 { error: '…' }
+  function manpowerFor(wb, src) {
+    var ws = wb.worksheets.filter(function (w) { return sameName(w.name, MANPOWER_SHEET); })[0];
+    if (!ws) return { error: '檔案裡沒有「' + MANPOWER_SHEET + '」工作表（第 6 步），現有人力 Milling、Dipping 先留空白。' };
+    var layout = src.kind === 'prev' && src.prev.layout ? src.prev.layout : null;
+    if (!layout) {
+      var saved = {};
+      try { saved = IEApp.settings.read(STEP6_KEY) || {}; } catch (e) { saved = {}; }
+      layout = XIO.dmManpowerLayout(saved);
+    }
+    if (!layout.millCol || !layout.dipCol || !layout.ttlRow) {
+      return { error: '還不知道「' + MANPOWER_SHEET + '」工作表的 Milling、Dipping、TTL 在哪裡（第 6 步還沒確認過位置），現有人力先留空白。' };
+    }
+    if (!layout.itemCol || !layout.firstItemRow || !layout.lastItemRow) {
+      layout = Object.assign({}, layout, { firstItemRow: 1, lastItemRow: 0 });   // 沒有項目的位置：只抓 TTL，Notes 留空白
+    }
+    var read = XIO.readDmManpower(ws, layout);
+    return { have: XIO.dmHaveInfo(read, layout, ws.name) };
+  }
+
   // 目檢站 需求工時的公式（參照 MPS 工作表目檢需求工時那一塊各段的 Total 列）
   var LABOR_TITLE = XIO.DEMAND_TITLES.labor;
   function laborTotals(main, src) {
@@ -406,6 +432,7 @@
       work.mps = mpsFormulas(main, src);
       work.machineTotals = machineTotals(main, src);
       work.laborTotals = laborTotals(main, src);
+      work.manpower = manpowerFor(wb, src);
       work.loading = false;
       refresh();
     }).catch(function (err) {
@@ -491,6 +518,17 @@
       }
     });
 
+    var mpw = work.manpower;
+    if (mpw && mpw.have) {
+      els.notes.appendChild(h('li', null, '現有人力（公式，六個月相同）：' +
+        [['milling', 'Milling'], ['dipping', 'Dipping']].map(function (p) {
+          var x = mpw.have[p[0]];
+          return p[1] + ' =' + x.formula + '（' + x.value + ' 人' + (x.note ? '，Notes：' + x.note : '') + '）';
+        }).join('；') + '。'));
+    } else if (mpw) {
+      els.notes.appendChild(h('li', { class: 'is-warn' }, mpw.error));
+    }
+
     var read = readInputs();
     if (read.bad.length) {
       setSummary('看不懂：' + read.bad.join('、') + '。請輸入數字。', true);
@@ -501,7 +539,7 @@
         '還沒填：' + read.blank.slice(0, 12).join('、') + (read.blank.length > 12 ? ' …等 ' + read.blank.length + ' 格' : '') +
         '。沒填的格子在總表留空白，一樣可以匯出。'));
     }
-    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、總現有人力、人力需求差異；現有人力、加班天數、Loading Rate 之後再補上。'));
+    els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、現有人力 Milling、Dipping、總現有人力、人力需求差異；加班天數、Loading Rate 之後再補上。'));
 
     var inputs = read.values;
     els.exportBtn.disabled = false;
@@ -549,7 +587,9 @@
       var main = pickMain(wb, src);
       var mt = main ? machineTotals(main, src) : null;
       var lt = main ? laborTotals(main, src) : null;
+      var mpw = manpowerFor(wb, src);
       XIO.addDmReportSheet(wb, {
+        have: mpw.have || null,
         monthRefs: refs, inputs: inputs, mps: main ? mpsFormulas(main, src) : null,
         millingHours: mt ? mt.cutting : null,
         millingRatio: { machines: inputs.millMachines, people: inputs.millPeople },
