@@ -13,7 +13,8 @@
  *   確認的位置會記住（共用設定 step6），下個月猜不到時拿來當預設值；第 7 步上傳第 6 步的檔案時也用它找資料。
  *
  *   之後總表：
- *     現有人力 Milling   ='人力'!<Milling 行><TTL 列>（六個月相同），Notes 寫 Milling 各項目的人數，例如「操機 3 人、鏡檢 3 人」
+ *     人力表整張放到總表 O 行起（最左邊有內容的那一行對到 O，列不變），原本的「人力」工作表不保留
+ *     現有人力 Milling   =<人力表在總表裡的 Milling 行><TTL 列>，例如 =Q12（六個月相同），Notes 寫 Milling 各項目的人數，例如「操機 3 人、鏡檢 3 人」
  *     現有人力 Dipping   同上，用 Dipping 那一行
  *
  *   來源有兩種：
@@ -385,7 +386,8 @@
     }
 
     var read = XIO.readDmManpower(mp.ws, pick);
-    var have = XIO.dmHaveInfo(read, pick, SHEET_NAME);
+    var offset = XIO.dmManpowerOffset(mp.ws);    // 第 7 步把人力表放進總表 O 行起要往右移幾行
+    var have = XIO.dmHaveInfo(read, XIO.shiftDmLayout(pick, offset), null);
     renderCheck(read, have);
 
     // 注意事項
@@ -424,7 +426,8 @@
 
     var replacing = src.kind === 'file' && S.base.hasManpower;
     var text = '匯出的檔案會多一個「' + SHEET_NAME + '」工作表（' + mp.ext.lastRow.toLocaleString('en-US') + ' 列、' +
-      mp.ext.colCount + ' 行）。總表的現有人力 Milling 會抓 =' + have.milling.formula + '（' + fmt(have.milling.value) + ' 人）、' +
+      mp.ext.colCount + ' 行）；第 7 步做總表時會把它整張放到總表的 ' + XIO.numToCol(XIO.DM_MANPOWER.reportCol) +
+      ' 行起（列不變），原本的「' + SHEET_NAME + '」工作表不保留。總表的現有人力 Milling 會抓 =' + have.milling.formula + '（' + fmt(have.milling.value) + ' 人）、' +
       'Dipping 抓 =' + have.dipping.formula + '（' + fmt(have.dipping.value) + ' 人），六個月都用同一個值。';
     if (replacing) text += ' 檔案裡原本的「' + SHEET_NAME + '」工作表會換成這次上傳的。';
     setSummary(text, false, warn || replacing);

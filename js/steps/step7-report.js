@@ -20,7 +20,9 @@
  *       =ROUNDUP(需求工時/工作時間/工作班別數/(工作天數+加班天數 - 目檢)/出勤率/作業效率,1)
  *     需求人數 - 目檢   =ROUNDUP(需求人力 - Milling*工作班別數+需求人力 - Dipping*工作班別數,1)
  *     總需求人力       =需求顧機人數 - Milling+需求顧機人數 - dipping+需求人數 - 目檢
- *     現有人力 Milling、Dipping   公式：參照「人力」工作表（第 6 步）該行的 TTL 列，例如 ='人力'!D12，六個月相同；
+ *     人力表          第 6 步的「人力」工作表整張放進總表 O 行起（最左邊有內容的那一行對到 O，列不變），
+ *                     原本的「人力」工作表不保留
+ *     現有人力 Milling、Dipping   公式：參照總表 O 行起人力表裡該行的 TTL 列，例如 =Q12，六個月相同；
  *                                 Notes 寫各項目的人數，例如「操機 3 人、鏡檢 3 人」。
  *                                 位置用第 6 步確認的（剛做完第 6 步就沿用；上傳的檔案用第 6 步記住的設定 step6）
  *     總現有人力       =現有人力 Milling+Dipping
@@ -48,9 +50,12 @@
  *     a. 剛才第 6 步做好的結果（不用先匯出，直接沿用）
  *     b. 上傳之前第 6 步匯出的檔案
  *
+ *   工作表順序：總表排第一個，開檔時顯示總表
+ *
  *   匯出的檔名：「YYMM_Dipping+Milling 人力需求預估.xlsx」，例如 2611_Dipping+Milling 人力需求預估.xlsx
  *     MM 是首月（總表第一個月的表頭，第 5 步輸入的月份，例如 Nov → 11）；看不懂時用今天的月份
  *     YY 是今天的年份後兩位；首月比今天的月份早超過半年時（例如 12 月做、首月是 Jan）算下一年
+ *     「匯出 Excel」旁邊的輸入框顯示這個檔名，可以手動改（不用打 .xlsx）；清空或按「改回自動檔名」就用自動的
  *
  * 做完之後把結果放在 IEApp.state.withReport（這是最後一步，之後要接新的步驟時可以直接拿來用）。
  */
@@ -75,7 +80,8 @@
   var S = {
     upload: null,         // 上傳的第 6 步檔案 { name, buffer, sheets }
     preferUpload: false,
-    work: null            // { src, loading, error, wb, main, refs }
+    work: null,           // { src, loading, error, wb, main, refs }
+    customName: ''        // 使用者手動改的檔名（不含 .xlsx）；空白 = 用自動檔名
   };
   var els = {};
 
@@ -288,7 +294,8 @@
       layout = Object.assign({}, layout, { firstItemRow: 1, lastItemRow: 0 });   // 沒有項目的位置：只抓 TTL，Notes 留空白
     }
     var read = XIO.readDmManpower(ws, layout);
-    return { have: XIO.dmHaveInfo(read, layout, ws.name) };
+    var offset = XIO.dmManpowerOffset(ws);       // 放進總表 O 行起要往右移幾行
+    return { ws: ws, offset: offset, have: XIO.dmHaveInfo(read, XIO.shiftDmLayout(layout, offset), null) };
   }
 
   // 目檢站 需求工時的公式（參照 MPS 工作表目檢需求工時那一塊各段的 Total 列）
@@ -341,6 +348,20 @@
     els.layout = h('div', { class: 'sheet-area' });
     els.exportBtn = h('button', { type: 'button', class: 'btn-primary', disabled: true, text: '匯出 Excel', onclick: onExport });
     els.exportNote = h('span', { class: 'export-note', 'aria-live': 'polite' });
+    // 匯出的檔名：預設是自動檔名，可以手動改
+    els.nameInput = h('input', { id: 'f9-outname', type: 'text', class: 'in in-name', autocomplete: 'off', spellcheck: 'false', value: S.customName });
+    els.nameReset = h('button', { type: 'button', class: 'btn-link', hidden: !S.customName, text: '改回自動檔名', onclick: function () {
+      S.customName = '';
+      els.nameInput.value = els.nameInput.placeholder;
+      els.nameReset.hidden = true;
+      els.exportNote.textContent = '';
+    } });
+    els.nameInput.addEventListener('input', function () {
+      var v = els.nameInput.value;
+      S.customName = cleanName(v) === cleanName(els.nameInput.placeholder) ? '' : v;
+      els.nameReset.hidden = !S.customName;
+      els.exportNote.textContent = '';
+    });
 
     // 工作時間：工作時數、休息時數（六個月共用）
     els.workHours = h('input', { id: 'f9-work-h', type: 'text', class: 'in in-tiny', inputmode: 'decimal', autocomplete: 'off', value: INP.workHours, placeholder: '例如 12' });
@@ -391,7 +412,10 @@
       h('li', { class: 'task' },
         h('h2', { text: '匯出' }),
         els.summary, els.notes, els.layout,
-        h('div', { class: 'actions' }, els.exportBtn, els.exportNote))));
+        h('div', { class: 'actions' }, els.exportBtn,
+          h('span', { class: 'out-name' },
+            h('label', { for: 'f9-outname', text: '檔名' }), els.nameInput, h('span', { text: '.xlsx' }), els.nameReset),
+          els.exportNote))));
 
     refresh();
   }
@@ -526,6 +550,8 @@
 
     var mpw = work.manpower;
     if (mpw && mpw.have) {
+      els.notes.appendChild(h('li', null, '「' + MANPOWER_SHEET + '」工作表會整張放到總表的 ' +
+        XIO.numToCol(XIO.DM_MANPOWER.reportCol) + ' 行起（列不變），原本的「' + MANPOWER_SHEET + '」工作表不保留。總表排第一個，開檔時顯示總表。'));
       els.notes.appendChild(h('li', null, '現有人力（公式，六個月相同）：' +
         [['milling', 'Milling'], ['dipping', 'Dipping']].map(function (p) {
           var x = mpw.have[p[0]];
@@ -548,13 +574,19 @@
     els.notes.appendChild(h('li', null, '目前填入工作天數、工作時間、機台每日可動工時、工作班別數、出勤率、作業效率、MPS 的兩列、Milling站和 Dipping站（機台需求工時、人機比、開機數、顧機人數、需求顧機人數）、目檢站（需求工時、需求人力）、需求人數 - 目檢、總需求人力、現有人力 Milling、Dipping、總現有人力、人力需求差異、Loading Rate；加班天數之後再補上。'));
 
     var out = outputName(refs);
-    els.notes.appendChild(h('li', { class: out.guessed ? 'is-warn' : null }, '匯出的檔名：' + out.name +
-      (out.guessed ? '（看不懂首月的表頭「' + (refs && refs[0] ? refs[0].text : '') + '」，月份先用今天的月份；請確認第 5 步的月份表頭）' : '')));
+    var autoBase = out.name.replace(/\.xlsx$/i, '');
+    els.nameInput.placeholder = autoBase;
+    if (!S.customName) els.nameInput.value = autoBase;
+    if (out.guessed) {
+      els.notes.appendChild(h('li', { class: 'is-warn' }, '自動檔名 ' + out.name + '：看不懂首月的表頭「' +
+        (refs && refs[0] ? refs[0].text : '') + '」，月份先用今天的月份；請確認第 5 步的月份表頭，或在「匯出 Excel」旁邊直接改檔名。'));
+    }
 
     var inputs = read.values;
     els.exportBtn.disabled = false;
     IEApp.state.withReport = {
-      outName: outputName(refs).name,
+      outName: out.name,
+      autoName: autoBase,
       mainSheet: work.main.name,
       dataStartRow: dataStartRow(src),
       reportSheet: SHEET_NAME,
@@ -598,7 +630,7 @@
       var mt = main ? machineTotals(main, src) : null;
       var lt = main ? laborTotals(main, src) : null;
       var mpw = manpowerFor(wb, src);
-      XIO.addDmReportSheet(wb, {
+      var report = XIO.addDmReportSheet(wb, {
         have: mpw.have || null,
         monthRefs: refs, inputs: inputs, mps: main ? mpsFormulas(main, src) : null,
         millingHours: mt ? mt.cutting : null,
@@ -607,6 +639,12 @@
         dippingRatio: { machines: inputs.dipMachines, people: inputs.dipPeople },
         laborHours: lt || null
       });
+      // 人力表放進總表 O 行起，刪掉原本的「人力」工作表
+      if (mpw.ws) {
+        XIO.copyIntoSheet(mpw.ws, report.worksheet, mpw.offset);
+        wb.removeWorksheet(mpw.ws.id);
+      }
+      XIO.showSheetFirst(wb, report.worksheet);
       return wb;
     });
   }
@@ -636,9 +674,19 @@
   }
 
   /* ---------- 匯出 ---------- */
+  // 檔名裡不能用的字（\ / : * ? " < > |）拿掉、去頭尾空白，結尾的 .xlsx 也拿掉
+  function cleanName(text) {
+    return String(text || '').replace(/[\\/:*?"<>|]/g, '').trim().replace(/\.xlsx$/i, '').trim();
+  }
+  // 實際匯出的檔名：手動改的優先，空白就用自動檔名
+  function finalName(autoBase) {
+    return (cleanName(S.customName) || autoBase) + '.xlsx';
+  }
+
   function onExport() {
     var ready = IEApp.state.withReport;
     if (!ready) return;
+    ready.outName = finalName(ready.autoName);
     els.exportBtn.disabled = true;
     els.exportNote.textContent = '產生檔案中…';
     ready.build()

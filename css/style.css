@@ -344,6 +344,9 @@ select.in-month { text-align-last: center; }
 /* 目前使用哪一個來源 */
 .source-line { max-width: 44rem; margin-bottom: 0.75rem; }
 .export-note { font-size: 0.9375rem; color: var(--ink-2); }
+/* 第 7 步：匯出的檔名（可以手動改） */
+.out-name { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.in-name { width: min(100%, 24rem); }
 
 /* ---------- 窄螢幕 ---------- */
 

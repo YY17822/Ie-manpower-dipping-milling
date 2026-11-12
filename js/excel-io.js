@@ -2576,6 +2576,72 @@
     ]
   };
 
+  // 第 7 步把人力表整張放進總表：人力表最左邊有內容的那一行對到 O 行，列不變；原本的「人力」工作表不保留
+  DM_MANPOWER.reportCol = 15;   // O
+
+  // 工作表最左邊有內容的行（沒有內容回傳 1）
+  function firstUsedCol(ws) {
+    var min = 0;
+    eachStoredRow(ws, function (row) {
+      eachStoredCell(row, function (cell, c) {
+        if (cell.isMerged && cell.master !== cell) return;
+        var v = plainValue(cellRawValue(cell));
+        if (v === null || v === undefined || v === '') return;
+        if (!min || c < min) min = c;
+      });
+    });
+    return min || 1;
+  }
+  // 人力表放進總表時，每一行要往右移幾行（例如人力表從 B 行開始 → 往右移 13 行，B→O、D→Q）
+  function dmManpowerOffset(ws) { return DM_MANPOWER.reportCol - firstUsedCol(ws); }
+  // 位置往右移 offset 行（列不變）
+  function shiftDmLayout(L, offset) {
+    var out = Object.assign({}, L);
+    DM_MANPOWER.cols.forEach(function (x) { if (out[x.key]) out[x.key] += offset; });
+    return out;
+  }
+
+  /*
+   * 把 src 工作表的內容放進 dst 工作表：每一行往右移 offset 行、列不變。
+   * 值、格式、合併儲存格、行寬會帶過去；公式換成計算結果；列高不動（沿用 dst 的）。
+   * 回傳 { firstCol, lastCol, lastRow }（dst 的位置）
+   */
+  function copyIntoSheet(src, dst, offset) {
+    var ext = extent(src);
+    var maxCol = ext.colCount;
+    eachStoredRow(src, function (row, r) {
+      eachStoredCell(row, function (cell, c) {
+        if (c + offset < 1) return;
+        var ncell = dst.getCell(r, c + offset);
+        ncell.style = cell.style;
+        if (c > maxCol) maxCol = c;
+        if (cell.isMerged && cell.master !== cell) return;
+        var v = exportValue(cell);
+        if (v !== null && v !== '') ncell.value = v;
+      });
+    });
+    var first = firstUsedCol(src);
+    for (var c = first; c <= maxCol; c++) {
+      var w = src.getColumn(c).width;
+      if (w && c + offset >= 1) dst.getColumn(c + offset).width = w;
+    }
+    listMerges(src).forEach(function (m) {
+      if (m.left + offset >= 1) dst.mergeCellsWithoutStyle(m.top, m.left + offset, m.bottom, m.right + offset);
+    });
+    return { firstCol: first + offset, lastCol: maxCol + offset, lastRow: ext.lastRow };
+  }
+
+  // 把 ws 排到第一個工作表，開檔時也顯示它
+  function showSheetFirst(wb, ws) {
+    [ws].concat(wb.worksheets.filter(function (w) { return w !== ws; }))
+      .forEach(function (w, i) { w.orderNo = i; });
+    wb.worksheets.forEach(function (w) {
+      w.views = [Object.assign({}, (w.views && w.views[0]) || {}, { tabSelected: w === ws })];
+    });
+    wb.views = [Object.assign({ x: 0, y: 0, width: 20000, height: 12000, visibility: 'visible' },
+      (wb.views && wb.views[0]) || {}, { firstSheet: 0, activeTab: 0 })];
+  }
+
   // 記住的設定 → 位置（數字）。行可以是字母（B）或數字，列是數字；看不懂的是 0
   function dmManpowerLayout(saved) {
     var s = saved || {};
@@ -2664,7 +2730,8 @@
     return out;
   }
 
-  // 總表 現有人力 Milling、Dipping 要填的內容：公式參照人力工作表該行的 TTL；Notes 寫各項目的人數（空白、0 不列）
+  // 總表 現有人力 Milling、Dipping 要填的內容：公式參照該行的 TTL；Notes 寫各項目的人數（空白、0 不列）
+  // sheetName 是 null 時公式不加工作表名稱（人力表已經放在總表裡，例如 =Q12）
   function dmHaveInfo(read, L, sheetName) {
     var out = {};
     DM_MANPOWER.sides.forEach(function (sd) {
@@ -2677,7 +2744,7 @@
       });
       out[sd.key] = {
         sheet: sheetName, col: L[sd.col], row: L.ttlRow,
-        formula: sheetRef(sheetName) + numToCol(L[sd.col]) + L.ttlRow,
+        formula: (sheetName ? sheetRef(sheetName) : '') + numToCol(L[sd.col]) + L.ttlRow,
         value: typeof t.number === 'number' && !isNaN(t.number) ? t.number : 0,
         note: parts.join('、')
       };
@@ -3646,13 +3713,16 @@
       var x = have[p[0]];
       if (!x || !x.col || !x.row) return;
       for (var mm = 0; mm < R.months; mm++) {
-        put(p[1], mm, { formula: sheetRef(x.sheet) + numToCol(x.col) + x.row, result: isN(x.value) ? x.value : 0 }, '0.0');
+        put(p[1], mm, { formula: x.formula, result: isN(x.value) ? x.value : 0 }, '0.0');
       }
       if (x.note) ws.getCell(rows[p[1]], R.noteCol).value = x.note;
     });
 
-    // 列印：橫向、一頁寬
-    Object.assign(ws.pageSetup, { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
+    // 列印：橫向、一頁寬；只印總表本身（B 到 K 行），O 行起的人力表不印
+    Object.assign(ws.pageSetup, {
+      orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+      printArea: numToCol(R.labelCol) + R.headRow + ':' + numToCol(R.noteCol) + R.lastRow
+    });
 
     var wbAll = ws.workbook;
     if (wbAll) wbAll.calcProperties = Object.assign({}, wbAll.calcProperties, { fullCalcOnLoad: true });
@@ -3711,7 +3781,7 @@
   }
 
   var ExcelIO = {
-    VERSION: 30,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
+    VERSION: 32,          // 程式版本，顯示在畫面右上角；每次改版加 1（index.html 的 ?v= 也要改）
     colToNum: colToNum,
     numToCol: numToCol,
     normalizeText: normalizeText,
@@ -3763,6 +3833,10 @@
     guessDmManpower: guessDmManpower,
     readDmManpower: readDmManpower,
     dmHaveInfo: dmHaveInfo,
+    dmManpowerOffset: dmManpowerOffset,
+    shiftDmLayout: shiftDmLayout,
+    copyIntoSheet: copyIntoSheet,
+    showSheetFirst: showSheetFirst,
     manpowerRows: manpowerRows,
     guessManpowerRows: guessManpowerRows,
     guessFirstMonthCol: guessFirstMonthCol,
